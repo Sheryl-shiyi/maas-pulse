@@ -5,6 +5,10 @@ type: application
 version: 0.1.0
 appVersion: "1.0.0"
 
+maintainers:
+  - name: Sheryl Wang
+    email: sherwang@redhat.com
+
 dependencies:
   - name: keycloak
     condition: keycloak.enabled
