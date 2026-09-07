@@ -1,0 +1,173 @@
+global:
+  wildcardDomain: apps.cluster.example.com
+  wildcardCertName: router-certs-default
+  toolsImage: image-registry.openshift-image-registry.svc:5000/openshift/tools:latest
+
+users:
+  - user1
+  - user2
+  - user3
+  - user4
+  - user5
+
+subscriptions:
+  admin:
+    displayName: MaaS Admins
+    groups:
+      - name: admin
+    tokenRateLimits:
+      nemotron-3-nano-30b-a3b:
+        - limit: 100000
+          window: 1m
+      qwen3-8b-fp8:
+        - limit: 100000
+          window: 1m
+      gemini-3-1-flash-lite:
+        - limit: 100000
+          window: 1m
+  user:
+    displayName: MaaS Users
+    groups:
+      - name: user
+    tokenRateLimits:
+      nemotron-3-nano-30b-a3b:
+        - limit: 50000
+          window: 1m
+      qwen3-8b-fp8:
+        - limit: 50000
+          window: 1m
+      gemini-3-1-flash-lite:
+        - limit: 50000
+          window: 1m
+
+modelsNamespace: llm
+defaultServingImage: registry.redhat.io/rhaii/vllm-cuda-rhel9:3.4.0
+models:
+  - name: nemotron-3-nano-30b-a3b
+    displayName: NVIDIA Nemotron 3 Nano 30B A3B FP8
+    uri: oci://quay.io/jharmison/models:redhatai--nvidia-nemotron-3-nano-30b-a3b-fp8-modelcar
+    hardwareProfile:
+      enabled: true
+      name: gpu
+      namespace: redhat-ods-applications
+    resources:
+      limits:
+        cpu: "4"
+        memory: 24Gi
+        nvidia.com/gpu: "1"
+      requests:
+        cpu: "2"
+        memory: 16Gi
+        nvidia.com/gpu: "1"
+    extraArgs:
+      - --max-model-len=131072
+      - --enable-auto-tool-choice
+      - --tool-call-parser=qwen3_coder
+      - --trust-remote-code
+      - --enable-force-include-usage
+      - --reasoning-parser-plugin=/mnt/models/nano_v3_reasoning_parser.py
+      - --reasoning-parser=nano_v3
+    nodeSelector:
+      nvidia.com/gpu.product: NVIDIA-L40S
+    tolerations:
+      - effect: NoSchedule
+        key: nvidia.com/gpu
+        operator: Exists
+
+  - name: qwen3-8b-fp8
+    displayName: Qwen3 8B FP8 Dynamic
+    uri: oci://registry.redhat.io/rhelai1/modelcar-qwen3-8b-fp8-dynamic:1.5
+    hardwareProfile:
+      enabled: true
+      name: gpu
+      namespace: redhat-ods-applications
+    resources:
+      limits:
+        cpu: "4"
+        memory: 20Gi
+        nvidia.com/gpu: "1"
+      requests:
+        cpu: "2"
+        memory: 12Gi
+        nvidia.com/gpu: "1"
+    extraArgs:
+      - --max-model-len=40960
+      - --enable-auto-tool-choice
+      - --tool-call-parser=hermes
+      - --trust-remote-code
+      - --enable-force-include-usage
+    nodeSelector:
+      nvidia.com/gpu.product: NVIDIA-A10G
+    tolerations:
+      - effect: NoSchedule
+        key: nvidia.com/gpu
+        operator: Exists
+
+# This default aligns with g6e.2xlarge instances
+hardwareProfiles:
+  gpu:
+    node:
+      tolerations:
+        - key: nvidia.com/gpu
+          effect: NoSchedule
+          operator: Exists
+    displayName: NVIDIA GPU
+    cpu:
+      min: 2
+      max: 6
+      default: 2
+    memory:
+      min: 2Gi
+      max: 48Gi
+      default: 16Gi
+    gpu:
+      nvidia.com/gpu:
+        max: 1
+        displayName: NVIDIA L40s
+
+dashboardConfig:
+  genAiStudio: true
+  modelAsService: true
+  maasAuthPolicies: true
+  observabilityDashboard: true
+
+clusterMonitoring:
+  enabled: false
+  config:
+    enableUserWorkload: true
+    prometheusK8s:
+      retention: 168h
+      volumeClaimTemplate:
+        spec:
+          volumeMode: Filesystem
+          resources:
+            requests:
+              storage: 40Gi
+  userConfig:
+    prometheus:
+      retention: 72h
+      volumeClaimTemplate:
+        spec:
+          volumeMode: Filesystem
+          resources:
+            requests:
+              storage: 40Gi
+
+# Kuadrant sometimes misbehaves. Force a job to restart it after a delay post-apply
+kuadrant:
+  restart: false
+  namespace: kuadrant-system
+
+keycloak:
+  enabled: false
+  namespace: keycloak
+  removeKubeAdmin: false
+
+externalModels:
+  - name: gemini-3-1-flash-lite
+    provider: openai
+    endpoint: generativelanguage.googleapis.com
+    targetModel: gemini-3.1-flash-lite
+    apiFormat: openai-chat
+    path: /v1/chat/completions
+    apiKey: REPLACE_WITH_YOUR_GEMINI_API_KEY

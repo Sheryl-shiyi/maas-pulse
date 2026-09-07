@@ -1,0 +1,128 @@
+global:
+  wildcardDomain: apps.cluster.example.com
+  toolsImage: image-registry.openshift-image-registry.svc:5000/openshift/tools:latest
+
+gateways:
+  maasDefaultGateway:
+    create: true
+    useRoute: false
+    hostname: ""
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+
+dataScienceClusterInitialization:
+  monitoring:
+    metrics:
+      replicas: 1
+      storage:
+        retention: 90d
+        size: 5Gi
+
+dataScienceCluster:
+  create: true
+  components:
+    dashboard:
+      managementState: Managed
+    kserve:
+      modelsAsService:
+        managementState: Managed
+      managementState: Managed
+    llamastackoperator:
+      managementState: Managed
+
+# used for MaaS
+postgresCluster:
+  create: true
+  name: maas
+  namespace: maas-db
+  storage:
+    size: 5Gi
+  resources:
+    limits:
+      cpu: "1"
+      memory: 2Gi
+    requests:
+      cpu: 200m
+      memory: 256Mi
+
+rhcl:
+  create: true
+  namespace: kuadrant-system
+
+lws:
+  create: true
+
+install-operators:
+  enabled: true
+  operators:
+    openshift-cert-manager-operator:
+      enabled: true
+      channel: stable-v1
+      namespace: cert-manager-operator
+      operatorGroup:
+        enabled: true
+
+    leader-worker-set:
+      enabled: true
+      channel: stable-v1.0
+      namespace: openshift-lws-operator
+      operatorGroup:
+        enabled: true
+      targetNamespaces:
+        - openshift-lws-operator
+
+    rhods-operator:
+      enabled: true
+      channel: stable-3.5
+      namespace: redhat-ods-operator
+      installPlanApproval: Manual
+      startingCSV: rhods-operator.3.5.0
+      operatorGroup:
+        enabled: true
+
+    rhcl-operator:
+      enabled: true
+      channel: stable
+      namespace: kuadrant-system
+      installPlanApproval: Manual
+      startingCSV: rhcl-operator.v1.3.4
+      operatorGroup:
+        enabled: true
+
+    cloudnative-pg:
+      enabled: true
+      channel: stable-v1
+      catalog: certified-operators
+      namespace: cloudnative-pg
+      operatorGroup:
+        enabled: true
+
+    rhbk-operator:
+      enabled: true
+      channel: stable-v26.4
+      namespace: keycloak
+      operatorGroup:
+        enabled: true
+      targetNamespaces:
+        - keycloak
+
+    cluster-observability-operator:
+      enabled: true
+      channel: stable
+      namespace: openshift-cluster-observability-operator
+      installPlanApproval: Manual
+      startingCSV: cluster-observability-operator.v1.4.0
+      operatorGroup:
+        enabled: true
+
+    opentelemetry-product:
+      enabled: true
+      channel: stable
+      namespace: opentelemetry-operator
+      operatorGroup:
+        enabled: true

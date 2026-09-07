@@ -1,0 +1,6 @@
+keycloak:
+  enabled: true
+clusterMonitoring:
+  enabled: true
+kuadrant:
+  restart: true

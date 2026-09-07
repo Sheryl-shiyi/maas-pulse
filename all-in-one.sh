@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+
+set -e
+cd "$(dirname "$(realpath "$0")")"
+
+if [ "$(oc get storageclass -ogo-template='{{ range .items }}{{ if .metadata.annotations }}{{ if eq (index .metadata.annotations "storageclass.kubernetes.io/is-default-class") "true" }}found{{ break }}{{ end }}{{ end }}{{ end }}')" != "found" ]; then
+  echo 'You do not have a default StorageClass. This deployment requires persistent storage. Check the documentation.' >&2
+  exit 1
+fi
+
+if [ -r .env ]; then
+  . .env
+fi
+if [ -z "$ADMIN_PASSWORD" ]; then
+  read -rsp 'Enter a password to set for the admin user (will be created): ' ADMIN_PASSWORD
+  echo
+  echo "ADMIN_PASSWORD=\"$ADMIN_PASSWORD\"" >> .env
+fi
+export ADMIN_PASSWORD
+if [ -z "$USER_PASSWORD" ]; then
+  read -rsp 'Enter a password to set for the generated users (user1-user5 by default): ' USER_PASSWORD
+  echo
+  echo "USER_PASSWORD=\"$USER_PASSWORD\"" >> .env
+fi
+export USER_PASSWORD
+if [ -z "$REMOVE_KUBE_ADMIN" ]; then
+  read -rn 1 -p 'Do you want to remove the kubeadmin user, if it exists? [y/N]: ' answer
+  if [ "${answer,,}" = "y" ]; then
+    echo "Removing kubeadmin while stitching up keycloak..." >&2
+    REMOVE_KUBE_ADMIN=true
+  else
+    echo "Leaving kubeadmin user..." >&2
+    REMOVE_KUBE_ADMIN=false
+  fi
+  echo "REMOVE_KUBE_ADMIN=\"$REMOVE_KUBE_ADMIN\"" >> .env
+fi
+export REMOVE_KUBE_ADMIN
+
+function noisy {
+  local censored=()
+  while [ "$1" = "-c" ]; do
+    shift;
+    censored+=("$1")
+    shift;
+  done
+  local clean="${*}"
+  for var in "${censored[@]}"; do
+    clean="${clean/$var/<CENSORED>}"
+  done
+  echo "+ ${clean}"
+  "${@}"
+}
+
+INGRESS_DOMAIN=$(oc get ingresscontroller -n openshift-ingress-operator default -ojsonpath='{.status.domain}' 2>/dev/null)
+if [ -z "$INGRESS_DOMAIN" ]; then
+  echo "Unable to retrieve ingress configuration from your cluster." >&2
+  echo "Are you logged in with oc?" >&2
+  oc whoami
+  exit 1
+fi
+export INGRESS_DOMAIN
+
+INGRESS_CERTIFICATE=$(oc get ingresscontroller -n openshift-ingress-operator default -ojsonpath='{.spec.defaultCertificate.name}' 2>/dev/null)
+if [ -z "$INGRESS_CERTIFICATE" ]; then
+  INGRESS_CERTIFICATE=router-certs-default
+  INGRESS_CA="$(oc get secret -n openshift-ingress-operator router-ca -ogo-template='{{ index .data "tls.crt" | base64decode }}')"
+else
+  INGRESS_CA=""
+fi
+export INGRESS_CERTIFICATE INGRESS_CA
+
+if [ "$(oc get config.imageregistry cluster -ogo-template='{{ range .status.conditions }}{{ if eq .type "Available" }}{{ .status }}{{ end }}{{ end }}')" = "True" ]; then
+  TOOLS_IMAGE=image-registry.openshift-image-registry.svc:5000/openshift/tools:latest
+else
+  TOOLS_IMAGE=quay.io/openshift-release-dev/ocp-v4.0-art-dev@sha256:e850f92068d8365e68bab663ae7b76be22c0af33f6a7803c5c95f5ee3f3748f4
+fi
+export TOOLS_IMAGE
+
+function gateway_use_route {
+  ret=1
+  if ! oc get svc -n openshift-ingress router-default >/dev/null 2>&1; then
+    ret=0
+  fi
+  if [ "$(oc get svc -n openshift-ingress router-default -ojsonpath='{.spec.type}')" != "LoadBalancer" ]; then
+    ret=0
+  fi
+  if [ "$ret" -ne 1 ]; then
+    echo "WARNING: Detected a non-load-balancer ingress configuration. Using a Route to back Gateway API resources." >&2
+  fi
+  return $ret
+}
+if gateway_use_route; then
+  GATEWAY_USE_ROUTE=true
+else
+  GATEWAY_USE_ROUTE=false
+fi
+export GATEWAY_USE_ROUTE
+
+MONITORING_CONFIG=true
+if oc get configmap -n openshift-monitoring cluster-monitoring-config >/dev/null 2>&1; then
+  echo "WARNING: Detected an existing cluster monitoring config. Ensure user-workload monitoring is enabled yourself for metrics to work!" >&2
+  MONITORING_CONFIG=false
+fi
+export MONITORING_CONFIG
+
+KEYCLOAK_CLIENT_SECRET=$(LC_ALL=C tr -dc 'A-Za-z0-9_!@#$%^&*()\-+=' < /dev/urandom | head -c32)
+export KEYCLOAK_CLIENT_SECRET
+
+if [ -f environment.yaml ]; then
+  if ! grep -qF "$INGRESS_DOMAIN" environment.yaml; then
+    echo "ERROR: You have an environment.yaml file templated, but it doesn't match the cluster you're logged into right now!" >&2
+    echo >&2
+    echo "If it's left over from an old deployment, delete it. Otherwise, ensure you're logged into the correct cluster" >&2
+    exit 1
+  fi
+  processed=$(grep '^\s*processed: ' environment.yaml| cut -d: -f2 | tr -d '[:space:]')
+else
+  eval "cat << EOF > environment.yaml
+$(<environment.yaml.tpl)
+EOF
+"
+  processed=false
+fi
+
+if ! $processed; then
+  for operator in $(oc get subscriptions -A -ojsonpath='{range .items[*]}{.spec.name}{"\n"}{end}' 2>/dev/null); do
+    sed '/^[[:space:]]*'"$operator"':$/{n; s/enabled: true/enabled: false/;}' environment.yaml > environment.yaml.tmp && mv environment.yaml.tmp environment.yaml
+  done
+  sed 's/^\([[:space:]]*processed:\) false/\1 true/' environment.yaml > environment.yaml.tmp && mv environment.yaml.tmp environment.yaml
+fi
+
+echo "environment.yaml:"
+cat environment.yaml | sed 's/^/  /'
+
+# Install all dependency operators, and create the DataScienceCluster for RHOAI
+noisy helm upgrade --install --timeout 15m0s \
+  dependency-operators charts/dependency-operators \
+  -f environment.yaml
+noisy oc wait --for=condition=Ready datasciencecluster default-dsc --timeout 15m0s
+
+# Install the chart
+noisy -c "$ADMIN_PASSWORD" -c "$USER_PASSWORD" helm upgrade --install -n default --timeout 20m0s \
+  maas-pulse charts/maas-pulse \
+  -f charts/maas-pulse/all-dependencies.yaml \
+  -f environment.yaml \
+  --set keycloak.realm.admin.password="$ADMIN_PASSWORD" \
+  --set keycloak.realm.user.password="$USER_PASSWORD"

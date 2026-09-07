@@ -1,0 +1,30 @@
+{{- if .Values.clusterMonitoring.enabled }}
+{{- with .Values.clusterMonitoring.config }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-monitoring-config
+  namespace: openshift-monitoring
+  annotations:
+    helm.sh/resource-policy: keep
+  labels:
+    {{- include "maas-pulse.labels" $ | nindent 4 }}
+data:
+  config.yaml: |
+    {{- toYaml . | nindent 4 }}
+{{- end }}
+{{- with .Values.clusterMonitoring.userConfig }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: user-workload-monitoring-config
+  namespace: openshift-user-workload-monitoring
+  labels:
+    {{- include "maas-pulse.labels" $ | nindent 4 }}
+data:
+  config.yaml: |
+    {{- toYaml . | nindent 4 }}
+{{- end }}
+{{- end }}

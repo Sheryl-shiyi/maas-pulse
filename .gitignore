@@ -1,0 +1,5 @@
+.env
+environment.yaml
+CLAUDE.md
+.vscode/
+docs/sheryl-operations-log.md

@@ -1,0 +1,10 @@
+apiVersion: v2
+name: maas-pulse
+description: Real-time observability and traffic visualization with RHOAI Models-as-a-Service
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+dependencies:
+  - name: keycloak
+    condition: keycloak.enabled
