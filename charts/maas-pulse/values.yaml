@@ -22,7 +22,7 @@ subscriptions:
       qwen3-8b-fp8:
         - limit: 100000
           window: 1m
-      gemini-3-1-flash-lite:
+      "gemini-3.1-flash-lite":
         - limit: 100000
           window: 1m
   user:
@@ -36,7 +36,7 @@ subscriptions:
       qwen3-8b-fp8:
         - limit: 50000
           window: 1m
-      gemini-3-1-flash-lite:
+      "gemini-3.1-flash-lite":
         - limit: 50000
           window: 1m
 
@@ -164,10 +164,10 @@ keycloak:
   removeKubeAdmin: false
 
 externalModels:
-  - name: gemini-3-1-flash-lite
+  - name: gemini-3.1-flash-lite
     provider: openai
     endpoint: generativelanguage.googleapis.com
     targetModel: gemini-3.1-flash-lite
     apiFormat: openai-chat
-    path: /v1/chat/completions
+    path: /v1beta/openai/chat/completions
     apiKey: REPLACE_WITH_YOUR_GEMINI_API_KEY

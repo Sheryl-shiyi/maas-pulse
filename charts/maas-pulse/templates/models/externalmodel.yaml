@@ -1,9 +1,10 @@
 {{- range .Values.externalModels }}
+{{- $safeName := .name | replace "." "-" }}
 ---
 apiVersion: v1
 kind: Secret
 metadata:
-  name: {{ .name }}-api-key
+  name: {{ $safeName }}-api-key
   namespace: {{ $.Values.modelsNamespace }}
   labels:
     {{- include "maas-pulse.labels" $ | nindent 4 }}
@@ -15,7 +16,7 @@ data:
 apiVersion: inference.opendatahub.io/v1alpha1
 kind: ExternalProvider
 metadata:
-  name: {{ .name }}-provider
+  name: {{ $safeName }}-provider
   namespace: {{ $.Values.modelsNamespace }}
   labels:
     {{- include "maas-pulse.labels" $ | nindent 4 }}
@@ -25,7 +26,7 @@ spec:
   auth:
     type: {{ .authType | default "apikey" }}
     secretRef:
-      name: {{ .name }}-api-key
+      name: {{ $safeName }}-api-key
 ---
 apiVersion: inference.opendatahub.io/v1alpha1
 kind: ExternalModel
@@ -37,7 +38,7 @@ metadata:
 spec:
   externalProviderRefs:
   - ref:
-      name: {{ .name }}-provider
+      name: {{ $safeName }}-provider
     targetModel: {{ .targetModel }}
     apiFormat: {{ .apiFormat | default "openai-chat" }}
     path: {{ .path | default "/v1/chat/completions" }}

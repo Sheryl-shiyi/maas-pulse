@@ -23,6 +23,13 @@ if [ -z "$USER_PASSWORD" ]; then
   echo "USER_PASSWORD=\"$USER_PASSWORD\"" >> .env
 fi
 export USER_PASSWORD
+if [ -z "$GEMINI_API_KEY" ]; then
+  read -rp 'Enter a Google Gemini API key to deploy the external model (optional, press Enter to skip): ' GEMINI_API_KEY
+  if [ -n "$GEMINI_API_KEY" ]; then
+    echo "GEMINI_API_KEY=\"$GEMINI_API_KEY\"" >> .env
+  fi
+fi
+export GEMINI_API_KEY
 if [ -z "$REMOVE_KUBE_ADMIN" ]; then
   read -rn 1 -p 'Do you want to remove the kubeadmin user, if it exists? [y/N]: ' answer
   if [ "${answer,,}" = "y" ]; then
@@ -138,10 +145,21 @@ noisy helm upgrade --install --timeout 15m0s \
   -f environment.yaml
 noisy oc wait --for=condition=Ready datasciencecluster default-dsc --timeout 15m0s
 
+# Build optional Gemini args
+GEMINI_ARGS=()
+if [ -n "$GEMINI_API_KEY" ]; then
+  echo "Deploying with Gemini external model..."
+  GEMINI_ARGS+=(--set "externalModels[0].apiKey=$GEMINI_API_KEY")
+else
+  echo "Skipping Gemini external model (no API key provided)."
+  GEMINI_ARGS+=(--set-json 'externalModels=[]')
+fi
+
 # Install the chart
-noisy -c "$ADMIN_PASSWORD" -c "$USER_PASSWORD" helm upgrade --install -n default --timeout 20m0s \
+noisy -c "$ADMIN_PASSWORD" -c "$USER_PASSWORD" -c "$GEMINI_API_KEY" helm upgrade --install -n default --timeout 20m0s \
   maas-pulse charts/maas-pulse \
   -f charts/maas-pulse/all-dependencies.yaml \
   -f environment.yaml \
   --set keycloak.realm.admin.password="$ADMIN_PASSWORD" \
-  --set keycloak.realm.user.password="$USER_PASSWORD"
+  --set keycloak.realm.user.password="$USER_PASSWORD" \
+  "${GEMINI_ARGS[@]}"

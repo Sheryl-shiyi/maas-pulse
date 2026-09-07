@@ -110,8 +110,9 @@ cd maas-pulse
 The script will:
 1. Detect your cluster's ingress domain and certificate configuration
 2. Prompt for admin and user passwords (stored in `.env`, gitignored)
-3. Install all dependency operators and wait for RHOAI to be ready
-4. Deploy the maas-pulse chart with Keycloak, monitoring, and all models
+3. Prompt for an optional Google Gemini API key (if provided, deploys the external model; if skipped, only internal models are deployed)
+4. Install all dependency operators and wait for RHOAI to be ready
+5. Deploy the maas-pulse chart with Keycloak, monitoring, and models
 
 **Option B: Step-by-step with Helm**
 
