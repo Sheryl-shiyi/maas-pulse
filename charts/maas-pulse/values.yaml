@@ -163,6 +163,19 @@ keycloak:
   namespace: keycloak
   removeKubeAdmin: false
 
+trafficUI:
+  enabled: false
+  image: quay.io/REPLACE/maas-pulse-ui:latest
+  replicas: 1
+  maasGatewayUrl: ""
+  prometheusUrl: ""
+  modelNames: "publishers/llm/models/nemotron-3-nano-30b-a3b,qwen3-8b-fp8,gemini-3.1-flash-lite"
+  modelDisplayNames: "Nemotron 30B,Qwen3 8B,Gemini Flash"
+  modelTypes: "internal,internal,external"
+  userNames: "admin,user1,user2,user3,user4,user5"
+  userDisplayNames: "Premium User,user1,user2,user3,user4,user5"
+  apiKeysSecret: ""
+
 externalModels:
   - name: gemini-3.1-flash-lite
     provider: openai

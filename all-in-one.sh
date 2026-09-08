@@ -155,6 +155,20 @@ else
   GEMINI_ARGS+=(--set-json 'externalModels=[]')
 fi
 
+# Build traffic UI args
+TRAFFIC_UI_ARGS=()
+if [ -n "$TRAFFIC_UI_IMAGE" ]; then
+  echo "Deploying traffic UI with image: $TRAFFIC_UI_IMAGE"
+  TRAFFIC_UI_ARGS+=(--set trafficUI.enabled=true)
+  TRAFFIC_UI_ARGS+=(--set "trafficUI.image=$TRAFFIC_UI_IMAGE")
+  TRAFFIC_UI_ARGS+=(--set "trafficUI.maasGatewayUrl=https://maas.${INGRESS_DOMAIN}")
+  if [ -n "$TRAFFIC_UI_API_KEYS_SECRET" ]; then
+    TRAFFIC_UI_ARGS+=(--set "trafficUI.apiKeysSecret=$TRAFFIC_UI_API_KEYS_SECRET")
+  fi
+else
+  echo "Skipping traffic UI (no TRAFFIC_UI_IMAGE set). Build with: cd app && podman build -t <image> ."
+fi
+
 # Install the chart
 noisy -c "$ADMIN_PASSWORD" -c "$USER_PASSWORD" -c "$GEMINI_API_KEY" helm upgrade --install -n default --timeout 20m0s \
   maas-pulse charts/maas-pulse \
@@ -162,4 +176,11 @@ noisy -c "$ADMIN_PASSWORD" -c "$USER_PASSWORD" -c "$GEMINI_API_KEY" helm upgrade
   -f environment.yaml \
   --set keycloak.realm.admin.password="$ADMIN_PASSWORD" \
   --set keycloak.realm.user.password="$USER_PASSWORD" \
-  "${GEMINI_ARGS[@]}"
+  "${GEMINI_ARGS[@]}" \
+  "${TRAFFIC_UI_ARGS[@]}"
+
+if [ ${#TRAFFIC_UI_ARGS[@]} -gt 0 ]; then
+  PULSE_HOST="pulse.${INGRESS_DOMAIN}"
+  echo ""
+  echo "Traffic UI deployed at: https://${PULSE_HOST}"
+fi

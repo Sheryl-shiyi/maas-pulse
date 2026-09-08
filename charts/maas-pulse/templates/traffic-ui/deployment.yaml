@@ -1,0 +1,73 @@
+{{- if .Values.trafficUI.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: maas-pulse-ui
+  labels:
+    app.kubernetes.io/name: maas-pulse-ui
+    app.kubernetes.io/component: traffic-ui
+    {{- include "maas-pulse.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.trafficUI.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: maas-pulse-ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: maas-pulse-ui
+        app.kubernetes.io/component: traffic-ui
+    spec:
+      serviceAccountName: maas-pulse-ui
+      containers:
+        - name: ui
+          image: {{ .Values.trafficUI.image }}
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          env:
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
+            - name: PORT
+              value: "8080"
+            - name: MAAS_GATEWAY_URL
+              value: {{ .Values.trafficUI.maasGatewayUrl | default (printf "https://maas.%s" .Values.global.wildcardDomain) | quote }}
+            - name: PROMETHEUS_URL
+              value: {{ .Values.trafficUI.prometheusUrl | default "https://thanos-querier.openshift-monitoring.svc:9091" | quote }}
+            - name: MODEL_NAMES
+              value: {{ .Values.trafficUI.modelNames | default "" | quote }}
+            - name: MODEL_DISPLAY_NAMES
+              value: {{ .Values.trafficUI.modelDisplayNames | default "" | quote }}
+            - name: MODEL_TYPES
+              value: {{ .Values.trafficUI.modelTypes | default "" | quote }}
+            - name: USER_NAMES
+              value: {{ .Values.trafficUI.userNames | default "admin,user1,user2,user3,user4,user5" | quote }}
+            - name: USER_DISPLAY_NAMES
+              value: {{ .Values.trafficUI.userDisplayNames | default "" | quote }}
+            {{- if .Values.trafficUI.apiKeysSecret }}
+            - name: USER_API_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.trafficUI.apiKeysSecret }}
+                  key: api-keys
+            {{- end }}
+            - name: PROMETHEUS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: maas-pulse-ui-token
+                  key: token
+                  optional: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /api/config
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+{{- end }}

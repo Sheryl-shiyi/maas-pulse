@@ -1,0 +1,21 @@
+{{- if .Values.trafficUI.enabled }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: maas-pulse-ui
+  labels:
+    app.kubernetes.io/name: maas-pulse-ui
+    app.kubernetes.io/component: traffic-ui
+    {{- include "maas-pulse.labels" . | nindent 4 }}
+spec:
+  host: pulse.{{ .Values.global.wildcardDomain }}
+  to:
+    kind: Service
+    name: maas-pulse-ui
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}

@@ -4,3 +4,5 @@ clusterMonitoring:
   enabled: true
 kuadrant:
   restart: true
+trafficUI:
+  enabled: true
