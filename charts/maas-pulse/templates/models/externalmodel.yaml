@@ -1,4 +1,5 @@
 {{- range .Values.externalModels }}
+{{- if and . .name }}
 {{- $safeName := .name | replace "." "-" }}
 ---
 apiVersion: v1
@@ -55,4 +56,5 @@ spec:
   modelRef:
     kind: ExternalModel
     name: {{ .name }}
+{{- end }}
 {{- end }}

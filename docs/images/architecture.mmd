@@ -1,0 +1,74 @@
+%%{init: {'theme': 'dark', 'themeVariables': {'primaryColor': '#1e293b', 'primaryTextColor': '#e2e8f0', 'lineColor': '#64748b', 'edgeLabelBackground': '#0f172a'}}}%%
+graph LR
+    subgraph Users["Users & Applications"]
+        U1["VIP<br/>(admin)"]
+        U2["user1"]
+        U3["user2-5"]
+    end
+
+    subgraph OCP["OpenShift Cluster"]
+        subgraph RHOAI["Red Hat OpenShift AI 3.5"]
+            subgraph MaaS["Models-as-a-Service"]
+                GW["MaaS Gateway<br/>(Istio + Kuadrant)"]
+                AUTH["MaaSAuthPolicy<br/>+ MaaSSubscription"]
+                subgraph InternalModels["Internal Models (vLLM on GPU)"]
+                    M1["Nemotron 30B<br/>L40S GPU"]
+                    M2["Qwen3 8B<br/>A10G GPU"]
+                end
+                subgraph ExternalModels["External Models (Proxied)"]
+                    M3["Gemini Flash Lite<br/>via ExternalProvider"]
+                    M4["GPT-4.1 Nano<br/>via ExternalProvider"]
+                end
+            end
+        end
+
+        subgraph Telemetry["Telemetry Pipeline"]
+            ISTIO["Istio Telemetry"]
+            KTP["Kuadrant<br/>TelemetryPolicy"]
+            PROM["Prometheus<br/>(User Workload)"]
+            GRAF["Grafana"]
+        end
+
+        subgraph TrafficUI["maas-pulse Traffic UI"]
+            BFF["Node.js BFF<br/>(Express + WebSocket)"]
+            SPA["React SPA<br/>(Canvas Topology)"]
+        end
+
+        KC["Keycloak<br/>(OAuth/OIDC)"]
+    end
+
+    subgraph ExtAPIs["External APIs"]
+        GOOGLE["Google AI<br/>generativelanguage.googleapis.com"]
+        OPENAI["OpenAI<br/>api.openai.com"]
+    end
+
+    U1 & U2 & U3 -->|"OpenAI API<br/>/v1/chat/completions"| GW
+    GW -->|"body-based<br/>routing"| AUTH
+    AUTH -->|"rate limit<br/>+ auth check"| M1 & M2
+    AUTH -->|"credential<br/>injection"| M3 & M4
+    M3 -->|"HTTPS"| GOOGLE
+    M4 -->|"HTTPS"| OPENAI
+
+    GW -.->|"request metrics"| ISTIO
+    GW -.->|"auth/model labels"| KTP
+    ISTIO & KTP -.->|"scrape"| PROM
+    PROM -.->|"query"| GRAF
+
+    BFF -->|"inference<br/>requests"| GW
+    BFF -.->|"PromQL<br/>polling"| PROM
+    SPA <-->|"WebSocket<br/>/ws"| BFF
+
+    U1 & U2 & U3 -->|"browser"| SPA
+    U1 & U2 & U3 -->|"login"| KC
+
+    classDef gpu fill:#7c3aed,stroke:#a78bfa,color:#fff
+    classDef external fill:#0e7490,stroke:#22d3ee,color:#fff
+    classDef gateway fill:#d97706,stroke:#fbbf24,color:#fff
+    classDef telemetry fill:#1e3a5f,stroke:#3b82f6,color:#e2e8f0
+    classDef ui fill:#065f46,stroke:#34d399,color:#fff
+
+    class M1,M2 gpu
+    class M3,M4,GOOGLE,OPENAI external
+    class GW,AUTH gateway
+    class ISTIO,KTP,PROM,GRAF telemetry
+    class BFF,SPA ui

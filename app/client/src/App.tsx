@@ -152,6 +152,16 @@ export default function App() {
         });
         break;
 
+      case 'rate_limit_update':
+        setUsers(prev => {
+          const next = prev.map(u =>
+            u.name === event.user ? { ...u, rateLimit: event.rateLimit } : u
+          );
+          usersRef.current = next;
+          return next;
+        });
+        break;
+
       case 'request_error':
         setStats(s => ({ ...s, errorRequests: s.errorRequests + 1 }));
         setUsers(prev => prev.map(u =>

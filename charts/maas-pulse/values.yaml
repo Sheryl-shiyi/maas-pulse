@@ -25,6 +25,9 @@ subscriptions:
       "gemini-3.1-flash-lite":
         - limit: 100000
           window: 1m
+      "gpt-4.1-nano":
+        - limit: 100000
+          window: 1m
   user:
     displayName: MaaS Users
     groups:
@@ -37,6 +40,9 @@ subscriptions:
         - limit: 50000
           window: 1m
       "gemini-3.1-flash-lite":
+        - limit: 50000
+          window: 1m
+      "gpt-4.1-nano":
         - limit: 50000
           window: 1m
 
@@ -165,13 +171,13 @@ keycloak:
 
 trafficUI:
   enabled: false
-  image: quay.io/REPLACE/maas-pulse-ui:latest
+  image: quay.io/rh-ee-sherwang/maas-pulse:latest
   replicas: 1
   maasGatewayUrl: ""
   prometheusUrl: ""
-  modelNames: "publishers/llm/models/nemotron-3-nano-30b-a3b,qwen3-8b-fp8,gemini-3.1-flash-lite"
-  modelDisplayNames: "Nemotron 30B,Qwen3 8B,Gemini Flash"
-  modelTypes: "internal,internal,external"
+  modelNames: "publishers/llm/models/nemotron-3-nano-30b-a3b,qwen3-8b-fp8,gemini-3.1-flash-lite,gpt-4.1-nano"
+  modelDisplayNames: "Nemotron 30B,Qwen3 8B,Gemini Flash,GPT-4.1 Nano"
+  modelTypes: "internal,internal,external,external"
   userNames: "admin,user1,user2,user3,user4,user5"
   userDisplayNames: "VIP,user1,user2,user3,user4,user5"
   userRateLimits: "100k/min,50k/min,50k/min,50k/min,50k/min,50k/min"
@@ -185,3 +191,11 @@ externalModels:
     apiFormat: openai-chat
     path: /v1beta/openai/chat/completions
     apiKey: REPLACE_WITH_YOUR_GEMINI_API_KEY
+
+  - name: gpt-4.1-nano
+    provider: openai
+    endpoint: api.openai.com
+    targetModel: gpt-4.1-nano
+    apiFormat: openai-chat
+    path: /v1/chat/completions
+    apiKey: REPLACE_WITH_YOUR_OPENAI_API_KEY

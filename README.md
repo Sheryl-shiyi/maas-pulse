@@ -30,17 +30,116 @@ maas-pulse deploys a multi-model MaaS environment on OpenShift AI 3.5 with built
 
 Organizations adopting AI need visibility into how their models are being consumed: which teams use which models, how much capacity is being utilized, and where latency bottlenecks occur. maas-pulse addresses this by combining OpenShift AI's Models-as-a-Service infrastructure with a telemetry pipeline that captures per-user, per-model, and per-subscription metrics.
 
-The deployment includes two internal models (NVIDIA Nemotron 3 Nano 30B and Qwen3-8B) served via vLLM on dedicated GPUs, plus an external model (Google Gemini 3.1 Flash Lite) proxied through the MaaS inference gateway with automatic credential injection. Multi-tenant access control is managed through MaaSSubscription and MaaSAuthPolicy resources, with Keycloak providing user authentication via OpenShift OAuth.
+The deployment includes two internal models (NVIDIA Nemotron 3 Nano 30B and Qwen3-8B) served via vLLM on dedicated GPUs, plus external models (Google Gemini 3.1 Flash Lite and OpenAI GPT-4.1 Nano) proxied through the MaaS inference gateway with automatic credential injection. Multi-tenant access control is managed through MaaSSubscription and MaaSAuthPolicy resources, with Keycloak providing user authentication via OpenShift OAuth.
 
-Istio Telemetry and Kuadrant TelemetryPolicy capture request-level metrics (latency, model, user, subscription, organization) and export them to Prometheus. A Grafana instance (deployed separately) can query these metrics to build dashboards for usage attribution, cost center tracking, and performance monitoring. A future phase will add a custom web UI for real-time traffic flow visualization.
+Istio Telemetry and Kuadrant TelemetryPolicy capture request-level metrics (latency, model, user, subscription, organization) and export them to Prometheus. A Grafana instance (deployed separately) can query these metrics to build dashboards for usage attribution, cost center tracking, and performance monitoring.
+
+A custom web UI (maas-pulse Traffic UI) provides real-time traffic flow visualization: a canvas-rendered topology shows users, the MaaS gateway, and models as an animated network graph, with colored particles representing live inference requests flowing through the system. The UI displays per-user rate limits, rate-limit blocking status, and per-model health metrics (queue depth, KV cache utilization, p95 latency) — all updated in real-time via WebSocket.
 
 ### See it in action
 
-> **WIP**: Demo and walkthrough content will be added once the live traffic web UI (Phase 3) is complete.
+> **WIP**: Screenshots and a walkthrough video will be added soon. The traffic UI is deployed and functional — see [Architecture diagrams](#architecture-diagrams) below for how it works.
 
 ### Architecture diagrams
 
-> **WIP**: Architecture diagram will be added to `docs/images/`.
+**System architecture** — shows how users, the MaaS gateway, internal/external models, telemetry pipeline, and the traffic UI fit together:
+
+```mermaid
+graph LR
+    subgraph Users["Users & Applications"]
+        U1["VIP (admin)"]
+        U2["user1"]
+        U3["user2-5"]
+    end
+
+    subgraph OCP["OpenShift Cluster"]
+        subgraph RHOAI["Red Hat OpenShift AI 3.5"]
+            subgraph MaaS["Models-as-a-Service"]
+                GW["MaaS Gateway<br/>(Istio + Kuadrant)"]
+                AUTH["MaaSAuthPolicy<br/>+ MaaSSubscription"]
+                subgraph InternalModels["Internal Models (vLLM on GPU)"]
+                    M1["Nemotron 30B<br/>L40S GPU"]
+                    M2["Qwen3 8B<br/>A10G GPU"]
+                end
+                subgraph ExternalModels["External Models (Proxied)"]
+                    M3["Gemini Flash Lite"]
+                    M4["GPT-4.1 Nano"]
+                end
+            end
+        end
+
+        subgraph Telemetry["Telemetry Pipeline"]
+            ISTIO["Istio Telemetry"]
+            KTP["Kuadrant TelemetryPolicy"]
+            PROM["Prometheus"]
+            GRAF["Grafana"]
+        end
+
+        subgraph TrafficUI["maas-pulse Traffic UI"]
+            BFF["Node.js BFF<br/>(Express + WebSocket)"]
+            SPA["React SPA<br/>(Canvas Topology)"]
+        end
+
+        KC["Keycloak (OAuth)"]
+    end
+
+    subgraph ExtAPIs["External APIs"]
+        GOOGLE["Google AI"]
+        OPENAI["OpenAI"]
+    end
+
+    U1 & U2 & U3 -->|"/v1/chat/completions"| GW
+    GW --> AUTH
+    AUTH --> M1 & M2
+    AUTH -->|"credential injection"| M3 & M4
+    M3 --> GOOGLE
+    M4 --> OPENAI
+
+    GW -.-> ISTIO & KTP
+    ISTIO & KTP -.-> PROM -.-> GRAF
+
+    BFF --> GW
+    BFF -.->|"PromQL"| PROM
+    SPA <-->|"WebSocket"| BFF
+    U1 & U2 & U3 -->|"browser"| SPA
+```
+
+> Source: [`docs/images/architecture.mmd`](docs/images/architecture.mmd)
+
+**Traffic UI data flow** — shows the real-time request lifecycle from browser control to model inference and back:
+
+```mermaid
+sequenceDiagram
+    participant Browser as React SPA
+    participant BFF as Node.js BFF
+    participant MaaS as MaaS Gateway
+    participant Model as AI Model
+    participant Prom as Prometheus
+
+    Browser->>BFF: GET /api/config
+    BFF-->>Browser: models, users, rateLimits
+
+    Browser->>BFF: WebSocket connect (/ws)
+    BFF-->>Browser: config event
+
+    Browser->>BFF: start_traffic
+
+    loop Traffic Generation
+        BFF->>MaaS: POST /v1/chat/completions
+        MaaS->>Model: inference
+        Model-->>MaaS: completion
+        MaaS-->>BFF: response (or 429)
+        BFF-->>Browser: request events (animate particles)
+    end
+
+    loop Every 5s
+        BFF->>Prom: PromQL (vLLM metrics)
+        Prom-->>BFF: queue, KV cache, latency
+        BFF-->>Browser: model_status (update node colors)
+    end
+```
+
+> Source: [`docs/images/traffic-ui-flow.mmd`](docs/images/traffic-ui-flow.mmd)
 
 ## Requirements
 
@@ -188,6 +287,9 @@ oc delete namespace llm
 .
 ├── all-in-one.sh                          # End-to-end deployment script
 ├── environment.yaml.tpl                   # Cluster-specific values template
+├── app/                                   # maas-pulse Traffic UI application
+│   ├── client/                            #   React SPA (Vite + Canvas topology)
+│   └── server/                            #   Node.js BFF (Express + WebSocket)
 ├── charts/
 │   ├── dependency-operators/              # Helm chart: operators + operands
 │   │   ├── charts/install-operators/      #   Sub-chart for OLM subscriptions
@@ -202,7 +304,9 @@ oc delete namespace llm
 │       └── values.yaml                    #   Models, subscriptions, rate limits
 ├── docs/
 │   ├── examples/grafana.yaml              # Grafana deployment with OAuth + Prometheus
-│   ├── images/                            # Architecture diagrams (WIP)
+│   ├── images/                            # Architecture diagrams (Mermaid)
+│   │   ├── architecture.mmd              #   System architecture diagram
+│   │   └── traffic-ui-flow.mmd           #   Traffic UI sequence diagram
 │   └── reference/test-model-access.yaml   # Standalone model endpoint test pod
 └── README.md
 ```

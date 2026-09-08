@@ -99,6 +99,11 @@ function launchRequest(user: string, model: string, signal: AbortSignal) {
   p.finally(() => pending.delete(p));
 }
 
+function formatRateLimit(limit: number, remaining: number): string {
+  const fmt = (n: number) => n >= 1000 ? `${Math.round(n / 1000)}k` : `${n}`;
+  return `${fmt(remaining)}/${fmt(limit)}`;
+}
+
 async function fireRequest(user: string, model: string, signal: AbortSignal) {
   if (signal.aborted || isUserCoolingDown(user)) return;
 
@@ -111,6 +116,11 @@ async function fireRequest(user: string, model: string, signal: AbortSignal) {
     const result = await sendInference(user, model, question, signal);
 
     if (signal.aborted || isUserCoolingDown(user)) return;
+
+    if (result.rateLimitInfo) {
+      const rateLimit = formatRateLimit(result.rateLimitInfo.limit, result.rateLimitInfo.remaining);
+      broadcast({ type: 'rate_limit_update', user, rateLimit });
+    }
 
     if (result.rateLimited) {
       const cooldownMs = result.retryAfterMs || DEFAULT_COOLDOWN_MS;

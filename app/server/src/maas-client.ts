@@ -19,6 +19,12 @@ export function initMaasClients(gatewayUrl: string, users: UserInfo[]) {
   console.log(`[maas] initialized ${clients.size} API clients for ${gatewayUrl}`);
 }
 
+export interface RateLimitInfo {
+  limit: number;
+  remaining: number;
+  reset: number;
+}
+
 export interface InferenceResult {
   answer: string;
   tokensUsed: number;
@@ -26,6 +32,23 @@ export interface InferenceResult {
   rateLimited: boolean;
   retryAfterMs?: number;
   error?: string;
+  rateLimitInfo?: RateLimitInfo;
+}
+
+function parseRateLimitHeaders(headers: { get(name: string): string | null }): RateLimitInfo | undefined {
+  const limitStr = headers.get('ratelimit-limit');
+  if (!limitStr) return undefined;
+
+  const limit = parseInt(limitStr.split(',')[0]!.trim(), 10);
+  if (isNaN(limit)) return undefined;
+
+  const remainingStr = headers.get('ratelimit-remaining');
+  const remaining = remainingStr ? parseInt(remainingStr, 10) : limit;
+
+  const resetStr = headers.get('ratelimit-reset');
+  const reset = resetStr ? parseInt(resetStr, 10) : 0;
+
+  return { limit, remaining: isNaN(remaining) ? limit : remaining, reset: isNaN(reset) ? 0 : reset };
 }
 
 export async function sendInference(user: string, model: string, question: string, signal?: AbortSignal): Promise<InferenceResult> {
@@ -37,18 +60,19 @@ export async function sendInference(user: string, model: string, question: strin
   const start = performance.now();
   console.log(`[maas] ${user} → ${model}: sending request...`);
   try {
-    const response = await client.chat.completions.create({
+    const { data: completion, response: rawResponse } = await client.chat.completions.create({
       model,
       messages: [{ role: 'user', content: question }],
       max_tokens: 100,
-    }, { signal });
+    }, { signal }).withResponse();
 
     const latencyMs = Math.round(performance.now() - start);
-    const answer = response.choices[0]?.message?.content ?? '';
-    const tokensUsed = response.usage?.total_tokens ?? 0;
+    const answer = completion.choices[0]?.message?.content ?? '';
+    const tokensUsed = completion.usage?.total_tokens ?? 0;
+    const rateLimitInfo = parseRateLimitHeaders(rawResponse.headers);
 
     console.log(`[maas] ${user} → ${model}: OK ${latencyMs}ms, ${tokensUsed} tokens`);
-    return { answer, tokensUsed, latencyMs, rateLimited: false };
+    return { answer, tokensUsed, latencyMs, rateLimited: false, rateLimitInfo };
   } catch (err: unknown) {
     const latencyMs = Math.round(performance.now() - start);
 
@@ -59,7 +83,8 @@ export async function sendInference(user: string, model: string, question: strin
     if (err instanceof OpenAI.APIError && err.status === 429) {
       const retryHeader = err.headers?.get?.('retry-after');
       const retryAfterMs = retryHeader ? parseFloat(retryHeader) * 1000 : undefined;
-      return { answer: '', tokensUsed: 0, latencyMs, rateLimited: true, retryAfterMs };
+      const rateLimitInfo = err.headers ? parseRateLimitHeaders(err.headers) : undefined;
+      return { answer: '', tokensUsed: 0, latencyMs, rateLimited: true, retryAfterMs, rateLimitInfo };
     }
 
     const message = err instanceof Error ? err.message : 'Unknown error';

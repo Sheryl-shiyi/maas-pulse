@@ -1,0 +1,32 @@
+%%{init: {'theme': 'dark'}}%%
+sequenceDiagram
+    participant Browser as React SPA
+    participant BFF as Node.js BFF
+    participant WS as WebSocket /ws
+    participant MaaS as MaaS Gateway
+    participant Model as AI Model
+    participant Prom as Prometheus
+
+    Browser->>BFF: GET /api/config
+    BFF-->>Browser: models, users, rateLimits
+
+    Browser->>WS: connect
+    WS-->>Browser: config event
+
+    Browser->>WS: start_traffic (pattern, rate)
+
+    loop Traffic Generation
+        BFF->>MaaS: POST /v1/chat/completions
+        MaaS->>Model: inference (body-based routing)
+        Model-->>MaaS: completion response
+        MaaS-->>BFF: response (or 429 rate limited)
+        BFF->>WS: request_start → request_complete
+        WS-->>Browser: animate particle on topology
+    end
+
+    loop Every 5s
+        BFF->>Prom: PromQL (vLLM metrics)
+        Prom-->>BFF: queue depth, KV cache, p95 latency
+        BFF->>WS: model_status event
+        WS-->>Browser: update model node color/stats
+    end
