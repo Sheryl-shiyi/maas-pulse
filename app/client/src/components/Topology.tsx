@@ -18,9 +18,9 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
   propsRef.current = { users, models, activeRequests };
 
   const getLayout = useCallback((w: number, h: number) => {
-    const userX = w * 0.12;
+    const userX = w * 0.13;
     const gatewayX = w * 0.48;
-    const modelX = w * 0.85;
+    const modelX = w * 0.84;
     const gatewayY = h * 0.5;
 
     const userPositions = users.map((_, i) => ({
@@ -103,44 +103,53 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
 
         if (pos) {
           ctx.beginPath();
-          ctx.arc(pos.x, pos.y, 5, 0, Math.PI * 2);
+          ctx.arc(pos.x, pos.y, 7, 0, Math.PI * 2);
           ctx.fillStyle = color;
           ctx.shadowColor = color;
-          ctx.shadowBlur = 10;
+          ctx.shadowBlur = 12;
           ctx.fill();
           ctx.shadowBlur = 0;
         }
       }
 
       // Draw gateway node
-      drawHexagon(ctx, layout.gatewayX, layout.gatewayY, 30, '#ff9800');
-      drawText(ctx, 'MaaS', layout.gatewayX, layout.gatewayY + 1, '#fff', 11);
-      drawText(ctx, 'Gateway', layout.gatewayX, layout.gatewayY + 46, '#94a3b8', 11);
+      drawHexagon(ctx, layout.gatewayX, layout.gatewayY, 42, '#ff9800');
+      drawText(ctx, 'MaaS', layout.gatewayX, layout.gatewayY + 1, '#fff', 15, 'bold');
+      drawText(ctx, 'Gateway', layout.gatewayX, layout.gatewayY + 58, '#94a3b8', 13);
 
       // Draw user nodes
+      const userRadius = 34;
       for (let i = 0; i < users.length; i++) {
         const user = users[i]!;
         const pos = layout.userPositions[i]!;
         const color = user.rateLimited ? RATE_LIMITED_COLOR : USER_COLORS[i % USER_COLORS.length]!;
-        const nodeRadius = user.displayName.length > 6 ? 22 : 18;
-        drawCircle(ctx, pos.x, pos.y, nodeRadius, color);
-        drawText(ctx, user.displayName, pos.x, pos.y + 1, '#fff', user.displayName.length > 8 ? 8 : 10);
+        drawCircle(ctx, pos.x, pos.y, userRadius, color);
+        const fontSize = user.displayName.length > 8 ? 11 : 13;
+        drawText(ctx, user.displayName, pos.x, pos.y + 1, '#fff', fontSize, 'bold');
+
+        let labelY = pos.y + userRadius + 16;
+        if (user.rateLimit) {
+          drawText(ctx, user.rateLimit, pos.x, labelY, 'rgba(148,163,184,0.8)', 11);
+          labelY += 16;
+        }
         if (user.rateLimited) {
-          drawText(ctx, 'BLOCKED', pos.x, pos.y + 30, '#f44336', 9);
+          drawText(ctx, 'BLOCKED', pos.x, labelY, '#f44336', 12, 'bold');
         }
       }
 
       // Draw model nodes
+      const modelRectW = 150;
+      const modelRectH = 56;
       for (let i = 0; i < models.length; i++) {
         const model = models[i]!;
         const pos = layout.modelPositions[i]!;
         const statusColor = STATUS_COLORS[model.status] || '#4caf50';
-        drawRoundedRect(ctx, pos.x - 50, pos.y - 22, 100, 44, 8, statusColor);
-        drawText(ctx, model.displayName, pos.x, pos.y - 5, '#fff', 10);
+        drawRoundedRect(ctx, pos.x - modelRectW / 2, pos.y - modelRectH / 2, modelRectW, modelRectH, 10, statusColor);
+        drawText(ctx, model.displayName, pos.x, pos.y - 8, '#fff', 13, 'bold');
         if (model.type === 'internal') {
-          drawText(ctx, `Q:${model.queueDepth} KV:${model.kvCachePercent}%`, pos.x, pos.y + 10, 'rgba(255,255,255,0.7)', 9);
+          drawText(ctx, `Q:${model.queueDepth} KV:${model.kvCachePercent}%`, pos.x, pos.y + 12, 'rgba(255,255,255,0.7)', 11);
         } else {
-          drawText(ctx, 'external', pos.x, pos.y + 10, 'rgba(255,255,255,0.7)', 9);
+          drawText(ctx, 'external', pos.x, pos.y + 12, 'rgba(255,255,255,0.7)', 11);
         }
       }
 
@@ -171,7 +180,7 @@ function drawCurve(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: nu
   ctx.moveTo(x1, y1);
   ctx.bezierCurveTo(cp1x, y1, cp2x, y2, x2, y2);
   ctx.strokeStyle = color;
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth = 2;
   ctx.stroke();
 }
 
@@ -190,8 +199,8 @@ function drawCircle(ctx: CanvasRenderingContext2D, x: number, y: number, r: numb
   ctx.arc(x, y, r, 0, Math.PI * 2);
   ctx.fillStyle = color;
   ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.lineWidth = 1.5;
   ctx.stroke();
 }
 
@@ -216,8 +225,8 @@ function drawRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w:
   ctx.fill();
 }
 
-function drawText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color: string, size: number) {
-  ctx.font = `${size}px -apple-system, sans-serif`;
+function drawText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color: string, size: number, weight: string = 'normal') {
+  ctx.font = `${weight} ${size}px -apple-system, sans-serif`;
   ctx.fillStyle = color;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';

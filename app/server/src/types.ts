@@ -8,6 +8,7 @@ export interface UserInfo {
   name: string;
   displayName: string;
   apiKey: string;
+  rateLimit: string;
 }
 
 export type ModelStatus = 'healthy' | 'busy' | 'overloaded';

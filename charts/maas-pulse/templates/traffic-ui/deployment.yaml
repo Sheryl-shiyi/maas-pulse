@@ -44,6 +44,8 @@ spec:
               value: {{ .Values.trafficUI.userNames | default "admin,user1,user2,user3,user4,user5" | quote }}
             - name: USER_DISPLAY_NAMES
               value: {{ .Values.trafficUI.userDisplayNames | default "" | quote }}
+            - name: USER_RATE_LIMITS
+              value: {{ .Values.trafficUI.userRateLimits | default "" | quote }}
             {{- if .Values.trafficUI.apiKeysSecret }}
             - name: USER_API_KEYS
               valueFrom:

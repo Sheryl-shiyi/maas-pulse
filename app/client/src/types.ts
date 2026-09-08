@@ -7,6 +7,7 @@ export interface ModelInfo {
 export interface UserInfo {
   name: string;
   displayName: string;
+  rateLimit: string;
 }
 
 export type ModelStatus = 'healthy' | 'busy' | 'overloaded';
@@ -63,6 +64,7 @@ export interface ModelState {
 export interface UserState {
   name: string;
   displayName: string;
+  rateLimit: string;
   rateLimited: boolean;
   rateLimitedAt?: number;
   activeRequests: number;

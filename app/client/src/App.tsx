@@ -14,7 +14,7 @@ function initialModelState(info: ModelInfo): ModelState {
 }
 
 function initialUserState(info: UserInfo): UserState {
-  return { name: info.name, displayName: info.displayName, rateLimited: false, activeRequests: 0 };
+  return { name: info.name, displayName: info.displayName, rateLimit: info.rateLimit, rateLimited: false, activeRequests: 0 };
 }
 
 export default function App() {

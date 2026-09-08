@@ -173,7 +173,8 @@ trafficUI:
   modelDisplayNames: "Nemotron 30B,Qwen3 8B,Gemini Flash"
   modelTypes: "internal,internal,external"
   userNames: "admin,user1,user2,user3,user4,user5"
-  userDisplayNames: "Premium User,user1,user2,user3,user4,user5"
+  userDisplayNames: "VIP,user1,user2,user3,user4,user5"
+  userRateLimits: "100k/min,50k/min,50k/min,50k/min,50k/min,50k/min"
   apiKeysSecret: ""
 
 externalModels:

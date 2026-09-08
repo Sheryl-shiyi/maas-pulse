@@ -18,10 +18,12 @@ function loadConfig(): AppConfig {
   const userKeys = (process.env['USER_API_KEYS'] || '').split(',').filter(Boolean);
   const userNames = (process.env['USER_NAMES'] || 'admin,user1,user2,user3,user4,user5').split(',');
   const userDisplayNames = (process.env['USER_DISPLAY_NAMES'] || '').split(',');
+  const userRateLimits = (process.env['USER_RATE_LIMITS'] || '').split(',');
   const users = userNames.map((name, i) => ({
     name: name.trim(),
     displayName: userDisplayNames[i]?.trim() || name.trim(),
     apiKey: userKeys[i]?.trim() || '',
+    rateLimit: userRateLimits[i]?.trim() || '',
   }));
 
   const modelNames = (process.env['MODEL_NAMES'] || '').split(',').filter(Boolean);
@@ -52,7 +54,7 @@ app.use(express.json());
 app.get('/api/config', (_req, res) => {
   res.json({
     models: config.models,
-    users: config.users.map(u => ({ name: u.name, displayName: u.displayName })),
+    users: config.users.map(u => ({ name: u.name, displayName: u.displayName, rateLimit: u.rateLimit })),
     trafficRunning: isRunning(),
   });
 });
@@ -92,7 +94,7 @@ setClientConnectHandler((ws) => {
   sendTo(ws, {
     type: 'config',
     models: config.models,
-    users: config.users.map(u => ({ name: u.name, displayName: u.displayName })),
+    users: config.users.map(u => ({ name: u.name, displayName: u.displayName, rateLimit: u.rateLimit })),
   });
 });
 
