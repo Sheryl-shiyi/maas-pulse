@@ -42,6 +42,7 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
     const ctx = canvas.getContext('2d')!;
     let running = true;
 
+
     function resize() {
       const rect = canvas!.parentElement!.getBoundingClientRect();
       canvas!.width = rect.width * devicePixelRatio;
@@ -122,19 +123,21 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
       for (let i = 0; i < users.length; i++) {
         const user = users[i]!;
         const pos = layout.userPositions[i]!;
-        const color = user.rateLimited ? RATE_LIMITED_COLOR : USER_COLORS[i % USER_COLORS.length]!;
+        const blockedCount = Object.keys(user.rateLimitedModels).length;
+        const fullyBlocked = models.length > 0 && blockedCount >= models.length;
+        const color = fullyBlocked ? RATE_LIMITED_COLOR : USER_COLORS[i % USER_COLORS.length]!;
         drawCircle(ctx, pos.x, pos.y, userRadius, color);
         const fontSize = user.displayName.length > 8 ? 11 : 13;
         drawText(ctx, user.displayName, pos.x, pos.y + 1, '#fff', fontSize, 'bold');
 
-        let labelY = pos.y + userRadius + 16;
-        const limitLabel = rateLimitLabel(user);
-        if (limitLabel) {
-          drawText(ctx, limitLabel, pos.x, labelY, 'rgba(148,163,184,0.8)', 11);
-          labelY += 16;
+        const entries = Object.entries(user.rateLimits);
+        if (entries.length > 0) {
+          drawRateLimitCard(ctx, pos.x + userRadius + 6, pos.y, entries, user.rateLimitedModels, models, now);
+        } else if (user.rateLimit) {
+          drawText(ctx, user.rateLimit, pos.x, pos.y + userRadius + 16, 'rgba(148,163,184,0.8)', 11);
         }
-        if (user.rateLimited) {
-          drawText(ctx, 'BLOCKED', pos.x, labelY, '#f44336', 12, 'bold');
+        if (fullyBlocked) {
+          drawText(ctx, 'ALL BLOCKED', pos.x, pos.y + userRadius + 16, '#f44336', 11, 'bold');
         }
       }
 
@@ -174,12 +177,58 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
   );
 }
 
-function rateLimitLabel(user: UserState): string {
-  const vals = Object.values(user.rateLimits);
-  if (vals.length === 0) return user.rateLimit || '';
-  const unique = [...new Set(vals)];
-  if (unique.length === 1) return unique[0]!;
-  return `${unique.sort().join(' ~ ')}`;
+function getModelShortName(key: string, models: ModelState[]): string {
+  const model = models.find(m => m.name.endsWith(key) || m.name === key);
+  if (model) return model.displayName.split(' ')[0]!.slice(0, 6);
+  return key.split('-')[0]!.slice(0, 6);
+}
+
+function isKeyBlocked(key: string, blockedModels: Record<string, boolean>, models: ModelState[]): boolean {
+  const model = models.find(m => m.name.endsWith(key) || m.name === key);
+  return model ? !!blockedModels[model.name] : false;
+}
+
+function drawRateLimitCard(
+  ctx: CanvasRenderingContext2D,
+  x: number, centerY: number,
+  entries: [string, string][],
+  blockedModels: Record<string, boolean>,
+  models: ModelState[],
+  now: number,
+): void {
+  const rowH = 14;
+  const padX = 8, padY = 4;
+  const cardW = 110;
+  const cardH = entries.length * rowH + padY * 2;
+  const cardY = centerY - cardH / 2;
+
+  const pulse = Math.sin(now / 1000 * 2) * 0.15 + 0.35;
+  ctx.beginPath();
+  ctx.roundRect(x, cardY, cardW, cardH, 5);
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
+  ctx.fill();
+  ctx.strokeStyle = `rgba(99, 102, 241, ${pulse})`;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  for (let i = 0; i < entries.length; i++) {
+    const [modelKey, limit] = entries[i]!;
+    const shortName = getModelShortName(modelKey, models);
+    const blocked = isKeyBlocked(modelKey, blockedModels, models);
+    const rowY = cardY + padY + i * rowH + rowH / 2;
+    const textColor = blocked ? '#ef4444' : 'rgba(148, 163, 184, 0.9)';
+
+    ctx.font = 'bold 10px -apple-system, sans-serif';
+    ctx.fillStyle = textColor;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(shortName, x + padX, rowY);
+
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(blocked ? 'BLOCKED' : limit, x + cardW - padX, rowY);
+  }
+
 }
 
 function drawCurve(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string) {

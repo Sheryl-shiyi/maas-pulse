@@ -15,13 +15,18 @@ export function isRunning() {
   return running;
 }
 
-function isUserCoolingDown(user: string): boolean {
-  const until = rateLimitedUntil.get(user);
+function cooldownKey(user: string, model: string): string {
+  return `${user}\0${model}`;
+}
+
+function isModelCoolingDown(user: string, model: string): boolean {
+  const key = cooldownKey(user, model);
+  const until = rateLimitedUntil.get(key);
   if (!until) return false;
   if (Date.now() >= until) {
-    rateLimitedUntil.delete(user);
-    broadcast({ type: 'rate_limit_reset', user });
-    console.log(`[traffic] ${user} cooldown expired, resuming`);
+    rateLimitedUntil.delete(key);
+    broadcast({ type: 'rate_limit_reset', user, model });
+    console.log(`[traffic] ${user} cooldown for ${model} expired, resuming`);
     return false;
   }
   return true;
@@ -93,7 +98,7 @@ function pickRandom<T>(arr: T[]): T {
 }
 
 function launchRequest(user: string, model: string, signal: AbortSignal) {
-  if (isUserCoolingDown(user)) return;
+  if (isModelCoolingDown(user, model)) return;
   const p = fireRequest(user, model, signal);
   pending.add(p);
   p.finally(() => pending.delete(p));
@@ -105,7 +110,7 @@ function formatRateLimit(limit: number, remaining: number): string {
 }
 
 async function fireRequest(user: string, model: string, signal: AbortSignal) {
-  if (signal.aborted || isUserCoolingDown(user)) return;
+  if (signal.aborted || isModelCoolingDown(user, model)) return;
 
   const requestId = randomUUID();
   const question = getRandomQuestion();
@@ -115,7 +120,7 @@ async function fireRequest(user: string, model: string, signal: AbortSignal) {
 
     const result = await sendInference(user, model, question, signal);
 
-    if (signal.aborted || isUserCoolingDown(user)) return;
+    if (signal.aborted || isModelCoolingDown(user, model)) return;
 
     if (result.rateLimitInfo) {
       const rateLimit = formatRateLimit(result.rateLimitInfo.limit, result.rateLimitInfo.remaining);
@@ -124,9 +129,9 @@ async function fireRequest(user: string, model: string, signal: AbortSignal) {
 
     if (result.rateLimited) {
       const cooldownMs = result.retryAfterMs || DEFAULT_COOLDOWN_MS;
-      rateLimitedUntil.set(user, Date.now() + cooldownMs);
+      rateLimitedUntil.set(cooldownKey(user, model), Date.now() + cooldownMs);
       broadcast({ type: 'rate_limited', requestId, user, model });
-      console.log(`[traffic] ${user} rate-limited, pausing for ${Math.round(cooldownMs / 1000)}s`);
+      console.log(`[traffic] ${user} rate-limited on ${model}, pausing for ${Math.round(cooldownMs / 1000)}s`);
     } else if (result.error) {
       broadcast({ type: 'request_error', requestId, user, model, error: result.error });
     } else {

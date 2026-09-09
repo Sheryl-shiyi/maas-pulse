@@ -14,7 +14,7 @@ function initialModelState(info: ModelInfo): ModelState {
 }
 
 function initialUserState(info: UserInfo): UserState {
-  return { name: info.name, displayName: info.displayName, rateLimit: info.rateLimit, rateLimits: {}, rateLimited: false, activeRequests: 0 };
+  return { name: info.name, displayName: info.displayName, rateLimit: info.rateLimit, rateLimits: {}, rateLimitedModels: {}, activeRequests: 0 };
 }
 
 export default function App() {
@@ -43,7 +43,8 @@ export default function App() {
       }
 
       case 'request_start': {
-        if (usersRef.current.find(u => u.name === event.user)?.rateLimited) break;
+        const sender = usersRef.current.find(u => u.name === event.user);
+        if (sender?.rateLimitedModels[event.model]) break;
         setStats(s => ({ ...s, totalRequests: s.totalRequests + 1 }));
         setUsers(prev => {
           const next = prev.map(u =>
@@ -119,13 +120,17 @@ export default function App() {
         setStats(s => ({ ...s, rateLimitedRequests: s.rateLimitedRequests + 1 }));
         setUsers(prev => {
           const next = prev.map(u =>
-            u.name === event.user ? { ...u, rateLimited: true, rateLimitedAt: Date.now(), activeRequests: 0 } : u
+            u.name === event.user ? {
+              ...u,
+              rateLimitedModels: { ...u.rateLimitedModels, [event.model]: true },
+              activeRequests: Math.max(0, u.activeRequests - 1),
+            } : u
           );
           usersRef.current = next;
           return next;
         });
         setActiveRequests(prev => {
-          const next = prev.filter(r => r.user !== event.user);
+          const next = prev.filter(r => !(r.user === event.user && r.model === event.model));
           activeRequestsRef.current = next;
           return next;
         });
@@ -142,15 +147,18 @@ export default function App() {
         }, ...prev].slice(0, MAX_FEED));
         break;
 
-      case 'rate_limit_reset':
+      case 'rate_limit_reset': {
         setUsers(prev => {
-          const next = prev.map(u =>
-            u.name === event.user ? { ...u, rateLimited: false } : u
-          );
+          const next = prev.map(u => {
+            if (u.name !== event.user) return u;
+            const { [event.model]: _, ...rest } = u.rateLimitedModels;
+            return { ...u, rateLimitedModels: rest };
+          });
           usersRef.current = next;
           return next;
         });
         break;
+      }
 
       case 'rate_limit_update':
         setUsers(prev => {
