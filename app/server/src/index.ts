@@ -6,6 +6,7 @@ import { initWebSocket, broadcast, setClientMessageHandler, setClientConnectHand
 import { initMaasClients } from './maas-client.js';
 import { initPrometheus, startPolling, stopPolling } from './prometheus.js';
 import { startTraffic, stopTraffic, isRunning } from './traffic.js';
+import { startSubscriptionWatcher, getWatchedRateLimits } from './subscription-watcher.js';
 import type { AppConfig, ClientEvent } from './types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -19,11 +20,13 @@ function loadConfig(): AppConfig {
   const userNames = (process.env['USER_NAMES'] || 'admin,user1,user2,user3,user4,user5').split(',');
   const userDisplayNames = (process.env['USER_DISPLAY_NAMES'] || '').split(',');
   const userRateLimits = (process.env['USER_RATE_LIMITS'] || '').split(',');
+  const userGroups = (process.env['USER_GROUPS'] || '').split(',');
   const users = userNames.map((name, i) => ({
     name: name.trim(),
     displayName: userDisplayNames[i]?.trim() || name.trim(),
     apiKey: userKeys[i]?.trim() || '',
     rateLimit: userRateLimits[i]?.trim() || '',
+    group: userGroups[i]?.trim() || '',
   }));
 
   const modelNames = (process.env['MODEL_NAMES'] || '').split(',').filter(Boolean);
@@ -96,6 +99,10 @@ setClientConnectHandler((ws) => {
     models: config.models,
     users: config.users.map(u => ({ name: u.name, displayName: u.displayName, rateLimit: u.rateLimit })),
   });
+  const watched = getWatchedRateLimits();
+  for (const [user, rateLimits] of watched) {
+    sendTo(ws, { type: 'rate_limit_update', user, rateLimits });
+  }
 });
 
 setClientMessageHandler((event: ClientEvent) => {
@@ -118,6 +125,12 @@ setClientMessageHandler((event: ClientEvent) => {
 
 if (config.models.length > 0 && config.prometheusUrl) {
   startPolling(config.models);
+}
+
+const subscriptionNs = process.env['SUBSCRIPTION_NAMESPACE'] || 'models-as-a-service';
+const watchUsers = config.users.filter(u => u.group).map(u => ({ name: u.name, group: u.group }));
+if (watchUsers.length > 0) {
+  startSubscriptionWatcher(watchUsers, subscriptionNs);
 }
 
 const port = parseInt(process.env['PORT'] || '3001');

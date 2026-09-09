@@ -128,8 +128,9 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
         drawText(ctx, user.displayName, pos.x, pos.y + 1, '#fff', fontSize, 'bold');
 
         let labelY = pos.y + userRadius + 16;
-        if (user.rateLimit) {
-          drawText(ctx, user.rateLimit, pos.x, labelY, 'rgba(148,163,184,0.8)', 11);
+        const limitLabel = rateLimitLabel(user);
+        if (limitLabel) {
+          drawText(ctx, limitLabel, pos.x, labelY, 'rgba(148,163,184,0.8)', 11);
           labelY += 16;
         }
         if (user.rateLimited) {
@@ -171,6 +172,14 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
       style={{ width: '100%', height: '100%', display: 'block' }}
     />
   );
+}
+
+function rateLimitLabel(user: UserState): string {
+  const vals = Object.values(user.rateLimits);
+  if (vals.length === 0) return user.rateLimit || '';
+  const unique = [...new Set(vals)];
+  if (unique.length === 1) return unique[0]!;
+  return `${unique.sort().join(' ~ ')}`;
 }
 
 function drawCurve(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string) {

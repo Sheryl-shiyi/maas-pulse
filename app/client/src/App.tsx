@@ -14,7 +14,7 @@ function initialModelState(info: ModelInfo): ModelState {
 }
 
 function initialUserState(info: UserInfo): UserState {
-  return { name: info.name, displayName: info.displayName, rateLimit: info.rateLimit, rateLimited: false, activeRequests: 0 };
+  return { name: info.name, displayName: info.displayName, rateLimit: info.rateLimit, rateLimits: {}, rateLimited: false, activeRequests: 0 };
 }
 
 export default function App() {
@@ -155,7 +155,7 @@ export default function App() {
       case 'rate_limit_update':
         setUsers(prev => {
           const next = prev.map(u =>
-            u.name === event.user ? { ...u, rateLimit: event.rateLimit } : u
+            u.name === event.user ? { ...u, rateLimits: { ...u.rateLimits, ...event.rateLimits } } : u
           );
           usersRef.current = next;
           return next;

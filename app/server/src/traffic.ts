@@ -119,7 +119,7 @@ async function fireRequest(user: string, model: string, signal: AbortSignal) {
 
     if (result.rateLimitInfo) {
       const rateLimit = formatRateLimit(result.rateLimitInfo.limit, result.rateLimitInfo.remaining);
-      broadcast({ type: 'rate_limit_update', user, rateLimit });
+      broadcast({ type: 'rate_limit_update', user, rateLimits: { [model]: rateLimit } });
     }
 
     if (result.rateLimited) {

@@ -81,9 +81,11 @@ export async function sendInference(user: string, model: string, question: strin
     }
 
     if (err instanceof OpenAI.APIError && err.status === 429) {
-      const retryHeader = err.headers?.get?.('retry-after');
+      const headers = err.headers;
+      const retryHeader = typeof headers?.get === 'function' ? headers.get('retry-after') : null;
       const retryAfterMs = retryHeader ? parseFloat(retryHeader) * 1000 : undefined;
-      const rateLimitInfo = err.headers ? parseRateLimitHeaders(err.headers) : undefined;
+      const rateLimitInfo = headers && typeof headers.get === 'function' ? parseRateLimitHeaders(headers) : undefined;
+      console.log(`[maas] ${user} → ${model}: 429 rate limited`);
       return { answer: '', tokensUsed: 0, latencyMs, rateLimited: true, retryAfterMs, rateLimitInfo };
     }
 

@@ -46,6 +46,10 @@ spec:
               value: {{ .Values.trafficUI.userDisplayNames | default "" | quote }}
             - name: USER_RATE_LIMITS
               value: {{ .Values.trafficUI.userRateLimits | default "" | quote }}
+            - name: USER_GROUPS
+              value: {{ .Values.trafficUI.userGroups | default "" | quote }}
+            - name: SUBSCRIPTION_NAMESPACE
+              value: {{ .Values.trafficUI.subscriptionNamespace | default "models-as-a-service" | quote }}
             {{- if .Values.trafficUI.apiKeysSecret }}
             - name: USER_API_KEYS
               valueFrom:

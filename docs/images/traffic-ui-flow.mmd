@@ -6,6 +6,7 @@ sequenceDiagram
     participant MaaS as MaaS Gateway
     participant Model as AI Model
     participant Prom as Prometheus
+    participant K8s as K8s API
 
     Browser->>BFF: GET /api/config
     BFF-->>Browser: models, users, rateLimits
@@ -29,4 +30,12 @@ sequenceDiagram
         Prom-->>BFF: queue depth, KV cache, p95 latency
         BFF->>WS: model_status event
         WS-->>Browser: update model node color/stats
+    end
+
+    Note over BFF,K8s: Subscription Watcher (K8s Watch API)
+    BFF->>K8s: Watch MaaSSubscriptions
+    loop On MaaSSubscription change
+        K8s-->>BFF: MODIFIED event (new token limits)
+        BFF->>WS: rate_limit_update
+        WS-->>Browser: update user rate limit display
     end

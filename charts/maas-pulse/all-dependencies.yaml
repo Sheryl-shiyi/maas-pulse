@@ -6,3 +6,4 @@ kuadrant:
   restart: true
 trafficUI:
   enabled: true
+  apiKeysSecret: maas-pulse-ui-apikeys

@@ -32,6 +32,7 @@ graph LR
         subgraph TrafficUI["maas-pulse Traffic UI"]
             BFF["Node.js BFF<br/>(Express + WebSocket)"]
             SPA["React SPA<br/>(Canvas Topology)"]
+            WATCH["Subscription<br/>Watcher"]
         end
 
         KC["Keycloak<br/>(OAuth/OIDC)"]
@@ -56,6 +57,7 @@ graph LR
 
     BFF -->|"inference<br/>requests"| GW
     BFF -.->|"PromQL<br/>polling"| PROM
+    WATCH -.->|"K8s Watch API<br/>MaaSSubscription"| AUTH
     SPA <-->|"WebSocket<br/>/ws"| BFF
 
     U1 & U2 & U3 -->|"browser"| SPA
@@ -71,4 +73,4 @@ graph LR
     class M3,M4,GOOGLE,OPENAI external
     class GW,AUTH gateway
     class ISTIO,KTP,PROM,GRAF telemetry
-    class BFF,SPA ui
+    class BFF,SPA,WATCH ui

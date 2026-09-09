@@ -34,16 +34,16 @@ subscriptions:
       - name: user
     tokenRateLimits:
       nemotron-3-nano-30b-a3b:
-        - limit: 50000
+        - limit: 5000
           window: 1m
       qwen3-8b-fp8:
-        - limit: 50000
+        - limit: 5000
           window: 1m
       "gemini-3.1-flash-lite":
-        - limit: 50000
+        - limit: 5000
           window: 1m
       "gpt-4.1-nano":
-        - limit: 50000
+        - limit: 5000
           window: 1m
 
 modelsNamespace: llm
@@ -175,12 +175,14 @@ trafficUI:
   replicas: 1
   maasGatewayUrl: ""
   prometheusUrl: ""
-  modelNames: "publishers/llm/models/nemotron-3-nano-30b-a3b,qwen3-8b-fp8,gemini-3.1-flash-lite,gpt-4.1-nano"
+  modelNames: "publishers/llm/models/nemotron-3-nano-30b-a3b,publishers/llm/models/qwen3-8b-fp8,gemini-3.1-flash-lite,gpt-4.1-nano"
   modelDisplayNames: "Nemotron 30B,Qwen3 8B,Gemini Flash,GPT-4.1 Nano"
   modelTypes: "internal,internal,external,external"
   userNames: "admin,user1,user2,user3,user4,user5"
   userDisplayNames: "VIP,user1,user2,user3,user4,user5"
-  userRateLimits: "100k/min,50k/min,50k/min,50k/min,50k/min,50k/min"
+  userRateLimits: "100k/min,5k/min,5k/min,5k/min,5k/min,5k/min"
+  userGroups: "admin,user,user,user,user,user"
+  subscriptionNamespace: "models-as-a-service"
   apiKeysSecret: ""
 
 externalModels:

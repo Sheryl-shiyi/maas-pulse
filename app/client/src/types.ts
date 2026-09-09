@@ -21,7 +21,7 @@ export type ServerEvent =
   | { type: 'request_error'; requestId: string; user: string; model: string; error: string }
   | { type: 'model_status'; model: string; queueDepth: number; latencyP95Ms: number; kvCachePercent: number; status: ModelStatus }
   | { type: 'rate_limit_reset'; user: string }
-  | { type: 'rate_limit_update'; user: string; rateLimit: string }
+  | { type: 'rate_limit_update'; user: string; rateLimits: Record<string, string> }
   | { type: 'traffic_started'; pattern: TrafficPattern }
   | { type: 'traffic_stopped' };
 
@@ -66,6 +66,7 @@ export interface UserState {
   name: string;
   displayName: string;
   rateLimit: string;
+  rateLimits: Record<string, string>;
   rateLimited: boolean;
   rateLimitedAt?: number;
   activeRequests: number;

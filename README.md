@@ -34,7 +34,7 @@ The deployment includes two internal models (NVIDIA Nemotron 3 Nano 30B and Qwen
 
 Istio Telemetry and Kuadrant TelemetryPolicy capture request-level metrics (latency, model, user, subscription, organization) and export them to Prometheus. A Grafana instance (deployed separately) can query these metrics to build dashboards for usage attribution, cost center tracking, and performance monitoring.
 
-A custom web UI (maas-pulse Traffic UI) provides real-time traffic flow visualization: a canvas-rendered topology shows users, the MaaS gateway, and models as an animated network graph, with colored particles representing live inference requests flowing through the system. The UI displays per-user rate limits, rate-limit blocking status, and per-model health metrics (queue depth, KV cache utilization, p95 latency) — all updated in real-time via WebSocket.
+A custom web UI (maas-pulse Traffic UI) provides real-time traffic flow visualization: a canvas-rendered topology shows users, the MaaS gateway, and models as an animated network graph, with colored particles representing live inference requests flowing through the system. The UI displays per-user rate limits (dynamically updated via K8s Watch on MaaSSubscription CRs), rate-limit blocking status, and per-model health metrics (queue depth, KV cache utilization, p95 latency) — all updated in real-time via WebSocket. Rate limit changes made in the RHOAI console are reflected in the UI within seconds, without requiring a page refresh or redeployment.
 
 ### See it in action
 
@@ -78,6 +78,7 @@ graph LR
         subgraph TrafficUI["maas-pulse Traffic UI"]
             BFF["Node.js BFF<br/>(Express + WebSocket)"]
             SPA["React SPA<br/>(Canvas Topology)"]
+            WATCH["Subscription<br/>Watcher"]
         end
 
         KC["Keycloak (OAuth)"]
@@ -100,6 +101,7 @@ graph LR
 
     BFF --> GW
     BFF -.->|"PromQL"| PROM
+    WATCH -.->|"K8s Watch<br/>MaaSSubscription"| AUTH
     SPA <-->|"WebSocket"| BFF
     U1 & U2 & U3 -->|"browser"| SPA
 ```
@@ -115,6 +117,7 @@ sequenceDiagram
     participant MaaS as MaaS Gateway
     participant Model as AI Model
     participant Prom as Prometheus
+    participant K8s as K8s API
 
     Browser->>BFF: GET /api/config
     BFF-->>Browser: models, users, rateLimits
@@ -136,6 +139,13 @@ sequenceDiagram
         BFF->>Prom: PromQL (vLLM metrics)
         Prom-->>BFF: queue, KV cache, latency
         BFF-->>Browser: model_status (update node colors)
+    end
+
+    Note over BFF,K8s: Subscription Watcher (K8s Watch API)
+    BFF->>K8s: Watch MaaSSubscriptions
+    loop On MaaSSubscription change
+        K8s-->>BFF: MODIFIED event (new token limits)
+        BFF-->>Browser: rate_limit_update (instant UI refresh)
     end
 ```
 
@@ -192,7 +202,7 @@ Before deploying, ensure you have:
 - `oc` CLI installed and authenticated as cluster admin (`oc whoami` should return an admin user)
 - `helm` CLI (3.12+) installed
 - A default StorageClass configured on the cluster
-- (Optional) A Google Gemini API key if deploying the external model
+- (Optional) A Google Gemini API key and/or OpenAI API key for external models
 
 ### Installation
 
@@ -232,9 +242,10 @@ helm upgrade --install maas-pulse charts/maas-pulse \
   --set keycloak.realm.user.password="YOUR_USER_PASSWORD"
 ```
 
-To include the Gemini external model with a real API key:
+To include external models with real API keys:
 ```bash
-  --set externalModels[0].apiKey="YOUR_GEMINI_API_KEY"
+  --set externalModels[0].apiKey="YOUR_GEMINI_API_KEY" \
+  --set externalModels[1].apiKey="YOUR_OPENAI_API_KEY"
 ```
 
 ### Validating the deployment
@@ -289,7 +300,7 @@ oc delete namespace llm
 ├── environment.yaml.tpl                   # Cluster-specific values template
 ├── app/                                   # maas-pulse Traffic UI application
 │   ├── client/                            #   React SPA (Vite + Canvas topology)
-│   └── server/                            #   Node.js BFF (Express + WebSocket)
+│   └── server/                            #   Node.js BFF (Express + WebSocket + K8s Watch)
 ├── charts/
 │   ├── dependency-operators/              # Helm chart: operators + operands
 │   │   ├── charts/install-operators/      #   Sub-chart for OLM subscriptions
