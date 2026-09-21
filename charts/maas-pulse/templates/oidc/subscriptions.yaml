@@ -1,0 +1,30 @@
+{{- if .Values.oidc.enabled }}
+{{- $modelsNs := .Values.modelsNamespace }}
+{{- $labels := include "maas-pulse.labels" . }}
+{{- range $idx, $group := .Values.oidc.groups }}
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSSubscription
+metadata:
+  name: oidc-{{ $group.name }}
+  namespace: models-as-a-service
+  annotations:
+    openshift.io/display-name: "OIDC {{ $group.displayName }}"
+    openshift.io/description: "Subscription for external OIDC {{ $group.name }} group"
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  owner:
+    groups:
+      - name: {{ $group.name }}
+    users: []
+  modelRefs:
+  {{- range $group.modelRefs }}
+  - name: {{ .name }}
+    namespace: {{ $modelsNs }}
+    tokenRateLimits:
+    {{- toYaml .tokenRateLimits | nindent 4 }}
+  {{- end }}
+  priority: {{ $group.priority | default (add 30 (mul $idx 10)) }}
+{{- end }}
+{{- end }}

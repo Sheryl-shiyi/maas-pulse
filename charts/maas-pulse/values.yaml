@@ -185,6 +185,78 @@ trafficUI:
   subscriptionNamespace: "models-as-a-service"
   apiKeysSecret: ""
 
+oidc:
+  enabled: false
+  keycloakNamespace: keycloak
+  clientId: maas-oidc
+  # issuerUrl must be set when enabled — derived from Keycloak route:
+  #   https://<keycloak-host>/realms/maas
+  issuerUrl: ""
+  ttl: 300
+  # Models that OIDC groups can access (must match names in models/externalModels)
+  modelAccess:
+    - nemotron-3-nano-30b-a3b
+    - qwen3-8b-fp8
+    - gemini-3.1-flash-lite
+    - gpt-4.1-nano
+  users:
+    - username: maas-user
+      email: maas-user@example.com
+      firstName: MaaS
+      lastName: User
+      password: maas-user
+      groups:
+        - data-scientists
+        - ml-engineers
+    - username: restricted-user
+      email: restricted@example.com
+      firstName: Restricted
+      lastName: User
+      password: restricted-user
+      groups:
+        - data-scientists
+  groups:
+    - name: data-scientists
+      displayName: Data Scientists
+      priority: 30
+      modelRefs:
+        - name: nemotron-3-nano-30b-a3b
+          tokenRateLimits:
+            - limit: 1000
+              window: 1m
+        - name: qwen3-8b-fp8
+          tokenRateLimits:
+            - limit: 1000
+              window: 1m
+        - name: gemini-3.1-flash-lite
+          tokenRateLimits:
+            - limit: 2000
+              window: 1m
+        - name: gpt-4.1-nano
+          tokenRateLimits:
+            - limit: 2000
+              window: 1m
+    - name: ml-engineers
+      displayName: ML Engineers
+      priority: 40
+      modelRefs:
+        - name: nemotron-3-nano-30b-a3b
+          tokenRateLimits:
+            - limit: 50000
+              window: 1m
+        - name: qwen3-8b-fp8
+          tokenRateLimits:
+            - limit: 50000
+              window: 1m
+        - name: gemini-3.1-flash-lite
+          tokenRateLimits:
+            - limit: 100000
+              window: 1m
+        - name: gpt-4.1-nano
+          tokenRateLimits:
+            - limit: 100000
+              window: 1m
+
 externalModels:
   - name: gemini-3.1-flash-lite
     provider: openai

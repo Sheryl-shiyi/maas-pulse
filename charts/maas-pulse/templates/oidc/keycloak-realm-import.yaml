@@ -1,0 +1,102 @@
+{{- if .Values.oidc.enabled }}
+apiVersion: k8s.keycloak.org/v2alpha1
+kind: KeycloakRealmImport
+metadata:
+  name: maas
+  namespace: {{ .Values.oidc.keycloakNamespace }}
+  labels:
+    {{- include "maas-pulse.labels" . | nindent 4 }}
+spec:
+  keycloakCRName: keycloak
+  realm:
+    realm: maas
+    id: maas
+    enabled: true
+    sslRequired: none
+    registrationAllowed: false
+    loginWithEmailAllowed: true
+    duplicateEmailsAllowed: false
+    resetPasswordAllowed: false
+    editUsernameAllowed: false
+    bruteForceProtected: true
+    accessTokenLifespan: 1800
+    ssoSessionMaxLifespan: 1800
+    groups:
+    - name: data-scientists
+      subGroups: []
+    - name: ml-engineers
+      subGroups: []
+    clients:
+    - clientId: {{ .Values.oidc.clientId }}
+      name: MaaS OIDC Client
+      enabled: true
+      publicClient: true
+      directAccessGrantsEnabled: true
+      standardFlowEnabled: true
+      implicitFlowEnabled: false
+      redirectUris:
+      - http://localhost:*
+      - http://127.0.0.1:*
+      - https://localhost:*
+      webOrigins:
+      - '*'
+      protocol: openid-connect
+      attributes:
+        pkce.code.challenge.method: S256
+        client.secret.creation.time: '0'
+      defaultClientScopes:
+      - openid
+      - groups
+      protocolMappers:
+      - name: preferred_username
+        protocol: openid-connect
+        protocolMapper: oidc-usermodel-attribute-mapper
+        consentRequired: false
+        config:
+          user.attribute: username
+          claim.name: preferred_username
+          jsonType.label: String
+          id.token.claim: 'true'
+          access.token.claim: 'true'
+          introspection.token.claim: 'true'
+          userinfo.token.claim: 'true'
+      - name: sub
+        protocol: openid-connect
+        protocolMapper: oidc-sub-mapper
+        consentRequired: false
+        config:
+          introspection.token.claim: 'true'
+          access.token.claim: 'true'
+    clientScopes:
+    - name: groups
+      protocol: openid-connect
+      attributes:
+        include.in.token.scope: 'true'
+      protocolMappers:
+      - name: groups
+        protocol: openid-connect
+        protocolMapper: oidc-group-membership-mapper
+        consentRequired: false
+        config:
+          full.path: 'false'
+          introspection.token.claim: 'true'
+          userinfo.token.claim: 'true'
+          id.token.claim: 'true'
+          access.token.claim: 'true'
+          claim.name: groups
+    users:
+    {{- range .Values.oidc.users }}
+    - username: {{ .username }}
+      email: {{ .email }}
+      firstName: {{ .firstName }}
+      lastName: {{ .lastName }}
+      enabled: true
+      emailVerified: true
+      credentials:
+      - type: password
+        value: {{ .password }}
+        temporary: false
+      groups:
+      {{- toYaml .groups | nindent 6 }}
+    {{- end }}
+{{- end }}

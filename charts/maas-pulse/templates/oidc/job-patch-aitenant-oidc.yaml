@@ -1,0 +1,86 @@
+{{- if .Values.oidc.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: patch-aitenant-oidc
+  namespace: ai-tenants
+  labels:
+    {{- include "maas-pulse.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: patch-aitenant-oidc
+  namespace: ai-tenants
+  labels:
+    {{- include "maas-pulse.labels" . | nindent 4 }}
+rules:
+- apiGroups: ["maas.opendatahub.io"]
+  resources: ["aitenants"]
+  verbs: ["get", "list", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: patch-aitenant-oidc
+  namespace: ai-tenants
+  labels:
+    {{- include "maas-pulse.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: patch-aitenant-oidc
+subjects:
+  - kind: ServiceAccount
+    name: patch-aitenant-oidc
+    namespace: ai-tenants
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: patch-aitenant-oidc-script
+  namespace: ai-tenants
+  labels:
+    {{- include "maas-pulse.labels" . | nindent 4 }}
+data:
+  patch-aitenant-oidc.sh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Patching AITenant with OIDC configuration..."
+    oc patch aitenants.maas.opendatahub.io models-as-a-service \
+      -n ai-tenants --type merge \
+      -p '{"spec":{"oidc":{"clientId":"{{ .Values.oidc.clientId }}","issuerUrl":"{{ .Values.oidc.issuerUrl }}","ttl":{{ .Values.oidc.ttl }}}}}'
+    echo "AITenant OIDC patch applied successfully."
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: patch-aitenant-oidc
+  namespace: ai-tenants
+  labels:
+    {{- include "maas-pulse.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 4
+  template:
+    spec:
+      serviceAccount: patch-aitenant-oidc
+      serviceAccountName: patch-aitenant-oidc
+      restartPolicy: Never
+      containers:
+      - name: patch-aitenant-oidc
+        image: {{ .Values.global.toolsImage }}
+        imagePullPolicy: IfNotPresent
+        workingDir: /app
+        command: ["/app/patch-aitenant-oidc.sh"]
+        volumeMounts:
+          - name: script
+            mountPath: /app
+      volumes:
+        - name: script
+          configMap:
+            name: patch-aitenant-oidc-script
+            defaultMode: 493
+{{- end }}

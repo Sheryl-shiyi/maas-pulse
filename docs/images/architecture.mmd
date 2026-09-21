@@ -4,6 +4,7 @@ graph LR
         U1["VIP<br/>(admin)"]
         U2["user1"]
         U3["user2-5"]
+        U4["OIDC Users<br/>(maas-user,<br/>restricted-user)"]
     end
 
     subgraph OCP["OpenShift Cluster"]
@@ -26,16 +27,19 @@ graph LR
             ISTIO["Istio Telemetry"]
             KTP["Kuadrant<br/>TelemetryPolicy"]
             PROM["Prometheus<br/>(User Workload)"]
-            GRAF["Grafana"]
         end
 
-        subgraph TrafficUI["maas-pulse Traffic UI"]
+        subgraph TrafficUI["maas-pulse"]
             BFF["Node.js BFF<br/>(Express + WebSocket)"]
             SPA["React SPA<br/>(Canvas Topology)"]
             WATCH["Subscription<br/>Watcher"]
+            COST["Cost &<br/>Chargeback"]
         end
 
-        KC["Keycloak<br/>(OAuth/OIDC)"]
+        subgraph OIDC["External OIDC Authentication"]
+            KC["Keycloak<br/>(maas realm)"]
+            REALM["Groups:<br/>data-scientists<br/>ml-engineers"]
+        end
     end
 
     subgraph ExtAPIs["External APIs"]
@@ -43,34 +47,43 @@ graph LR
         OPENAI["OpenAI<br/>api.openai.com"]
     end
 
-    U1 & U2 & U3 -->|"OpenAI API<br/>/v1/chat/completions"| GW
+    U1 & U2 & U3 -->|"API key<br/>/v1/chat/completions"| GW
+    U4 -->|"1. OIDC login"| KC
+    KC -->|"2. OIDC token<br/>(groups claim)"| U4
+    U4 -->|"3. Exchange token<br/>for API key"| GW
+    U4 -->|"4. Inference<br/>with API key"| GW
+
     GW -->|"body-based<br/>routing"| AUTH
     AUTH -->|"rate limit<br/>+ auth check"| M1 & M2
     AUTH -->|"credential<br/>injection"| M3 & M4
     M3 -->|"HTTPS"| GOOGLE
     M4 -->|"HTTPS"| OPENAI
 
+    KC -.->|"group → subscription<br/>mapping"| AUTH
+    REALM -.-> KC
+
     GW -.->|"request metrics"| ISTIO
     GW -.->|"auth/model labels"| KTP
     ISTIO & KTP -.->|"scrape"| PROM
-    PROM -.->|"query"| GRAF
 
     BFF -->|"inference<br/>requests"| GW
     BFF -.->|"PromQL<br/>polling"| PROM
+    COST -.->|"token → cost<br/>query"| PROM
     WATCH -.->|"K8s Watch API<br/>MaaSSubscription"| AUTH
     SPA <-->|"WebSocket<br/>/ws"| BFF
 
     U1 & U2 & U3 -->|"browser"| SPA
-    U1 & U2 & U3 -->|"login"| KC
 
     classDef gpu fill:#7c3aed,stroke:#a78bfa,color:#fff
     classDef external fill:#0e7490,stroke:#22d3ee,color:#fff
     classDef gateway fill:#d97706,stroke:#fbbf24,color:#fff
     classDef telemetry fill:#1e3a5f,stroke:#3b82f6,color:#e2e8f0
     classDef ui fill:#065f46,stroke:#34d399,color:#fff
+    classDef oidc fill:#7e22ce,stroke:#c084fc,color:#fff
 
     class M1,M2 gpu
     class M3,M4,GOOGLE,OPENAI external
     class GW,AUTH gateway
-    class ISTIO,KTP,PROM,GRAF telemetry
-    class BFF,SPA,WATCH ui
+    class ISTIO,KTP,PROM telemetry
+    class BFF,SPA,WATCH,COST ui
+    class KC,REALM oidc

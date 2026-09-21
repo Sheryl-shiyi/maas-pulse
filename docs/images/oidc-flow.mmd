@@ -1,0 +1,45 @@
+%%{init: {'theme': 'dark', 'themeVariables': {'primaryColor': '#1e293b', 'primaryTextColor': '#e2e8f0', 'lineColor': '#64748b'}}}%%
+sequenceDiagram
+    participant U as OIDC User<br/>(Browser)
+    participant APP as maas-ui.py<br/>(localhost:8090)
+    participant KC as Keycloak<br/>(maas realm)
+    participant MAAS as MaaS Gateway
+    participant MODEL as LLM Model<br/>(Qwen3 / Nemotron)
+
+    Note over U,MODEL: Step 1 — Sign in with Keycloak (Authorization Code + PKCE)
+    U->>APP: Click "Sign in with Keycloak"
+    APP->>U: Redirect to Keycloak /auth
+    U->>KC: Username + password
+    KC->>U: Authorization code
+    U->>APP: Callback with code
+    APP->>KC: Exchange code + PKCE verifier
+    KC->>APP: OIDC access token (JWT)
+
+    Note over U,MODEL: Step 2 — Inspect the token
+    APP->>APP: Decode JWT (no signature check)
+    Note right of APP: Claims:<br/>preferred_username: maas-user<br/>groups: [data-scientists, ml-engineers]
+
+    Note over U,MODEL: Step 3 — Exchange OIDC token for MaaS API key
+    APP->>MAAS: POST /maas-api/v1/api-keys<br/>Authorization: Bearer <OIDC token>
+    MAAS->>MAAS: Verify token with Keycloak JWKS
+    MAAS->>MAAS: Map groups → MaaSSubscription<br/>ml-engineers → oidc-ml-engineers (50K tokens/min)
+    MAAS->>APP: API key (sk-oai-...) + subscription info
+
+    Note over U,MODEL: Step 4 — Call the model with the API key
+    APP->>MAAS: POST /v1/chat/completions<br/>Authorization: Bearer sk-oai-...<br/>model: qwen3-8b-fp8
+    MAAS->>MAAS: Validate API key + rate limit check
+    MAAS->>MODEL: Forward request
+    MODEL->>MAAS: Response + tokens used
+    MAAS->>APP: Chat completion response
+    APP->>U: Display answer
+
+    Note over U,MODEL: Rate Limit Demo — Burst 15 requests
+    loop 15 requests
+        APP->>MAAS: POST /v1/chat/completions
+        alt Within rate limit
+            MAAS->>APP: 200 OK
+        else Limit exceeded
+            MAAS->>APP: 429 Too Many Requests
+        end
+    end
+    APP->>U: Success: N, Rate Limited: M
