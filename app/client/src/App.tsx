@@ -4,7 +4,10 @@ import { Topology } from './components/Topology';
 import { Controls } from './components/Controls';
 import { LiveFeed } from './components/LiveFeed';
 import { MetricsPanel } from './components/MetricsPanel';
+import { ChargebackView } from './components/ChargebackView';
 import type { ServerEvent, ModelInfo, UserInfo, ModelState, UserState, ActiveRequest, FeedEntry, Stats } from './types';
+
+type ViewTab = 'traffic' | 'cost';
 
 const MAX_FEED = 50;
 const MAX_PARTICLES = 100;
@@ -18,6 +21,7 @@ function initialUserState(info: UserInfo): UserState {
 }
 
 export default function App() {
+  const [activeTab, setActiveTab] = useState<ViewTab>('traffic');
   const [models, setModels] = useState<ModelState[]>([]);
   const [users, setUsers] = useState<UserState[]>([]);
   const [modelInfos, setModelInfos] = useState<ModelInfo[]>([]);
@@ -219,28 +223,64 @@ export default function App() {
 
   return (
     <div style={styles.app}>
-      <Controls
-        models={modelInfos}
-        users={userInfos}
-        trafficRunning={trafficRunning}
-        connected={connected}
-        send={send}
-      />
-      <div style={styles.main}>
-        <div style={styles.topologyArea}>
-          <Topology users={users} models={models} activeRequests={activeRequests} />
+      <div style={styles.tabBar}>
+        <div style={styles.tabGroup}>
+          <button
+            onClick={() => setActiveTab('traffic')}
+            style={{ ...styles.tab, ...(activeTab === 'traffic' ? styles.tabActive : {}) }}
+          >
+            Traffic
+          </button>
+          <button
+            onClick={() => setActiveTab('cost')}
+            style={{ ...styles.tab, ...(activeTab === 'cost' ? styles.tabActive : {}) }}
+          >
+            Cost & Chargeback
+          </button>
         </div>
-        <div style={styles.sidebar}>
-          <LiveFeed entries={feed} />
-          <MetricsPanel stats={stats} />
+        <div style={{ ...styles.connStatus, color: connected ? '#4caf50' : '#f44336' }}>
+          {connected ? 'Connected' : 'Disconnected'}
         </div>
       </div>
+
+      {activeTab === 'traffic' ? (
+        <>
+          <Controls
+            models={modelInfos}
+            users={userInfos}
+            trafficRunning={trafficRunning}
+            connected={connected}
+            send={send}
+          />
+          <div style={styles.main}>
+            <div style={styles.topologyArea}>
+              <Topology users={users} models={models} activeRequests={activeRequests} />
+            </div>
+            <div style={styles.sidebar}>
+              <LiveFeed entries={feed} />
+              <MetricsPanel stats={stats} />
+            </div>
+          </div>
+        </>
+      ) : (
+        <div style={styles.main}>
+          <ChargebackView />
+        </div>
+      )}
     </div>
   );
 }
 
 const styles: Record<string, React.CSSProperties> = {
   app: { display: 'flex', flexDirection: 'column', height: '100vh', background: '#0a0e17' },
+  tabBar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', background: '#0d1117', borderBottom: '1px solid #1e293b' },
+  tabGroup: { display: 'flex', gap: 0 },
+  tab: {
+    background: 'transparent', color: '#64748b', border: 'none', borderBottom: '2px solid transparent',
+    padding: '10px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+  },
+  tabActive: { color: '#e0e0e0', borderBottom: '2px solid #6366f1' },
+  connStatus: { fontSize: 12, fontWeight: 600 },
   main: { flex: 1, display: 'flex', overflow: 'hidden' },
   topologyArea: { flex: 1, position: 'relative' },
   sidebar: { width: 320, borderLeft: '1px solid #1e293b', display: 'flex', flexDirection: 'column', overflow: 'hidden' },

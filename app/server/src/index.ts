@@ -6,6 +6,7 @@ import { initWebSocket, broadcast, setClientMessageHandler, setClientConnectHand
 import { initMaasClients } from './maas-client.js';
 import { initPrometheus, startPolling, stopPolling } from './prometheus.js';
 import { startTraffic, stopTraffic, isRunning } from './traffic.js';
+import { initChargeback, getChargebackData, updateModelRate } from './chargeback.js';
 import { startSubscriptionWatcher, getWatchedRateLimits } from './subscription-watcher.js';
 import type { AppConfig, ClientEvent } from './types.js';
 
@@ -41,6 +42,8 @@ function loadConfig(): AppConfig {
   if (prometheusUrl) {
     initPrometheus(prometheusUrl, prometheusToken);
   }
+
+  initChargeback(models);
 
   if (users.some(u => u.apiKey)) {
     initMaasClients(maasGatewayUrl, users.filter(u => u.apiKey));
@@ -82,6 +85,27 @@ app.post('/api/traffic/start', (req, res) => {
 app.post('/api/traffic/stop', (_req, res) => {
   stopTraffic();
   res.json({ status: 'stopped' });
+});
+
+app.get('/api/chargeback', async (req, res) => {
+  const timeRange = String(req.query['range'] || 'all');
+  const allowed = ['all', '1h', '6h', '24h', '7d'];
+  if (!allowed.includes(timeRange)) {
+    res.status(400).json({ error: `range must be one of: ${allowed.join(', ')}` });
+    return;
+  }
+  const data = await getChargebackData(timeRange);
+  res.json(data);
+});
+
+app.put('/api/chargeback/rates', (req, res) => {
+  const { model, inputPer1M, outputPer1M } = req.body;
+  if (!model || typeof inputPer1M !== 'number' || typeof outputPer1M !== 'number') {
+    res.status(400).json({ error: 'model, inputPer1M, outputPer1M required' });
+    return;
+  }
+  updateModelRate(model, inputPer1M, outputPer1M);
+  res.json({ status: 'updated' });
 });
 
 const clientDist = path.join(__dirname, '../../client/dist');

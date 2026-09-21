@@ -11,7 +11,7 @@ export function initPrometheus(url: string, token: string) {
   console.log(`[prometheus] configured: ${url}`);
 }
 
-async function query(promql: string): Promise<Record<string, string | number>[]> {
+export async function query(promql: string): Promise<Record<string, string | number>[]> {
   if (!prometheusUrl) return [];
 
   try {
