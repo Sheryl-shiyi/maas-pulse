@@ -5,9 +5,10 @@ import { Controls } from './components/Controls';
 import { LiveFeed } from './components/LiveFeed';
 import { MetricsPanel } from './components/MetricsPanel';
 import { ChargebackView } from './components/ChargebackView';
+import { OidcView } from './components/OidcView';
 import type { ServerEvent, ModelInfo, UserInfo, ModelState, UserState, ActiveRequest, FeedEntry, Stats } from './types';
 
-type ViewTab = 'traffic' | 'cost';
+type ViewTab = 'traffic' | 'cost' | 'oidc';
 
 const MAX_FEED = 50;
 const MAX_PARTICLES = 100;
@@ -21,7 +22,10 @@ function initialUserState(info: UserInfo): UserState {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<ViewTab>('traffic');
+  const [activeTab, setActiveTab] = useState<ViewTab>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return (params.get('tab') as ViewTab) || 'traffic';
+  });
   const [models, setModels] = useState<ModelState[]>([]);
   const [users, setUsers] = useState<UserState[]>([]);
   const [modelInfos, setModelInfos] = useState<ModelInfo[]>([]);
@@ -237,6 +241,12 @@ export default function App() {
           >
             Cost & Chargeback
           </button>
+          <button
+            onClick={() => setActiveTab('oidc')}
+            style={{ ...styles.tab, ...(activeTab === 'oidc' ? styles.tabActive : {}) }}
+          >
+            OIDC
+          </button>
         </div>
         <div style={{ ...styles.connStatus, color: connected ? '#4caf50' : '#f44336' }}>
           {connected ? 'Connected' : 'Disconnected'}
@@ -262,9 +272,13 @@ export default function App() {
             </div>
           </div>
         </>
-      ) : (
+      ) : activeTab === 'cost' ? (
         <div style={styles.main}>
           <ChargebackView />
+        </div>
+      ) : (
+        <div style={styles.main}>
+          <OidcView />
         </div>
       )}
     </div>

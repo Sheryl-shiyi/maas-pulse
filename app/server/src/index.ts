@@ -8,6 +8,7 @@ import { initPrometheus, startPolling, stopPolling } from './prometheus.js';
 import { startTraffic, stopTraffic, isRunning } from './traffic.js';
 import { initChargeback, getChargebackData, updateModelRate } from './chargeback.js';
 import { startSubscriptionWatcher, getWatchedRateLimits } from './subscription-watcher.js';
+import { initOidc, createOidcRouter } from './oidc.js';
 import type { AppConfig, ClientEvent } from './types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -55,6 +56,7 @@ function loadConfig(): AppConfig {
 const config = loadConfig();
 
 const app = express();
+app.set('trust proxy', true);
 app.use(express.json());
 
 app.get('/api/config', (_req, res) => {
@@ -108,6 +110,8 @@ app.put('/api/chargeback/rates', (req, res) => {
   res.json({ status: 'updated' });
 });
 
+app.use(createOidcRouter());
+
 const clientDist = path.join(__dirname, '../../client/dist');
 app.use(express.static(clientDist));
 app.get(/^\/(?!api|ws).*/, (_req, res) => {
@@ -150,6 +154,8 @@ setClientMessageHandler((event: ClientEvent) => {
 if (config.models.length > 0 && config.prometheusUrl) {
   startPolling(config.models);
 }
+
+initOidc();
 
 const subscriptionNs = process.env['SUBSCRIPTION_NAMESPACE'] || 'models-as-a-service';
 const watchUsers = config.users.filter(u => u.group).map(u => ({ name: u.name, group: u.group }));

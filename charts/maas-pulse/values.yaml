@@ -184,6 +184,8 @@ trafficUI:
   userGroups: "admin,user,user,user,user,user"
   subscriptionNamespace: "models-as-a-service"
   apiKeysSecret: ""
+  oidcModelServed: "qwen3-8b-fp8"
+  oidcModelPath: "qwen3-8b-fp8"
 
 oidc:
   enabled: false

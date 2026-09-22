@@ -63,6 +63,18 @@ spec:
                   name: maas-pulse-ui-token
                   key: token
                   optional: true
+            {{- if .Values.oidc.enabled }}
+            - name: OIDC_ISSUER_URL
+              value: {{ .Values.oidc.issuerUrl | quote }}
+            - name: OIDC_CLIENT_ID
+              value: {{ .Values.oidc.clientId | default "maas-oidc" | quote }}
+            - name: OIDC_REDIRECT_URI
+              value: {{ printf "https://pulse.%s/auth/callback" .Values.global.wildcardDomain | quote }}
+            - name: OIDC_MODEL_SERVED
+              value: {{ .Values.trafficUI.oidcModelServed | default "qwen3-8b-fp8" | quote }}
+            - name: OIDC_MODEL_PATH
+              value: {{ .Values.trafficUI.oidcModelPath | default "qwen3-8b-fp8" | quote }}
+            {{- end }}
           resources:
             requests:
               cpu: 100m
