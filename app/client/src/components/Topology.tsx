@@ -179,8 +179,8 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
 
 function getModelShortName(key: string, models: ModelState[]): string {
   const model = models.find(m => m.name.endsWith(key) || m.name === key);
-  if (model) return model.displayName.split(' ')[0]!.slice(0, 6);
-  return key.split('-')[0]!.slice(0, 6);
+  if (model) return model.displayName.split(' ')[0]!.slice(0, 10);
+  return key.split('-')[0]!.slice(0, 10);
 }
 
 function isKeyBlocked(key: string, blockedModels: Record<string, boolean>, models: ModelState[]): boolean {
@@ -198,7 +198,7 @@ function drawRateLimitCard(
 ): void {
   const rowH = 14;
   const padX = 8, padY = 4;
-  const cardW = 110;
+  const cardW = 140;
   const cardH = entries.length * rowH + padY * 2;
   const cardY = centerY - cardH / 2;
 
