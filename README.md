@@ -82,6 +82,7 @@ graph LR
             SPA["React SPA<br/>(Canvas Topology)"]
             WATCH["Subscription Watcher"]
             COST["Cost & Chargeback"]
+            OIDCTAB["OIDC Demo Tab"]
         end
 
         subgraph OIDC["External OIDC Authentication"]
@@ -96,10 +97,12 @@ graph LR
     end
 
     U1 & U2 & U3 -->|"API key<br/>/v1/chat/completions"| GW
-    U4 -->|"1. OIDC login"| KC
-    KC -->|"2. OIDC token (groups claim)"| U4
-    U4 -->|"3. Exchange token for API key"| GW
-    U4 -->|"4. Inference with API key"| GW
+    U4 -->|"browser"| SPA
+    SPA -->|"1. /auth/login"| BFF
+    BFF -->|"redirect"| KC
+    KC -->|"2. OIDC token (groups claim)"| BFF
+    BFF -->|"3. Exchange token for API key"| GW
+    OIDCTAB -->|"4. Inference with API key"| GW
 
     GW -->|"body-based routing"| AUTH
     AUTH -->|"rate limit + auth check"| M1 & M2
@@ -195,12 +198,14 @@ Time range selector: 1h, 6h, 24h, 7d, All Time. Auto-refreshes every 30 seconds.
 
 maas-pulse supports external OIDC authentication via Keycloak, enabling group-based access control with per-group rate limits. This is an alternative to admin-issued API keys — users authenticate with Keycloak and exchange their OIDC token for a MaaS API key.
 
+The **OIDC tab** in the maas-pulse UI provides a built-in 4-step demo flow: sign in with Keycloak, inspect the JWT token claims, exchange for a MaaS API key, and call a model — all without leaving the browser. A "Burst 15 requests" button demonstrates rate limiting in action. A standalone Python demo app (`demo/oidc/maas-ui.py`) is also available for local testing.
+
 **OIDC flow** (4 steps):
 
 ```mermaid
 sequenceDiagram
     participant U as OIDC User<br/>(Browser)
-    participant APP as maas-ui.py<br/>(localhost:8090)
+    participant APP as maas-pulse BFF<br/>(OIDC tab)
     participant KC as Keycloak<br/>(maas realm)
     participant MAAS as MaaS Gateway
     participant MODEL as LLM Model<br/>(Qwen3 / Nemotron)
@@ -255,10 +260,12 @@ sequenceDiagram
 ```bash
 helm upgrade <release> charts/maas-pulse \
   --set oidc.enabled=true \
-  --set oidc.issuerUrl=https://<keycloak-host>/realms/maas
+  --set trafficUI.enabled=true
 ```
 
-**Run the demo app:**
+The issuer URL is auto-derived from `global.wildcardDomain` (`https://keycloak.<domain>/realms/maas`). Override with `--set oidc.issuerUrl=...` only if Keycloak uses a custom hostname. The OIDC tab in the UI is automatically enabled when both flags are set.
+
+**Standalone demo app** (alternative, runs locally):
 ```bash
 python3 demo/oidc/maas-ui.py \
   --from-cluster \
@@ -267,7 +274,7 @@ python3 demo/oidc/maas-ui.py \
   --port 8090
 ```
 
-Alternatively, use `scripts/setup-oidc.sh` for standalone setup without Helm.
+For manual OIDC setup without Helm, use `scripts/setup-oidc.sh`.
 
 ## Requirements
 
@@ -420,10 +427,12 @@ oc delete namespace llm
 │   ├── client/                            #   React SPA (Vite + Canvas topology)
 │   │   └── src/components/
 │   │       ├── ChargebackView.tsx          #   Cost & Chargeback dashboard
+│   │       ├── OidcView.tsx               #   OIDC 4-step demo tab
 │   │       └── ...                        #   Traffic topology, controls, etc.
 │   └── server/                            #   Node.js BFF (Express + WebSocket + K8s Watch)
 │       └── src/
 │           ├── chargeback.ts              #   Prometheus → cost conversion logic
+│           ├── oidc.ts                    #   OIDC login, token exchange, chat proxy
 │           ├── prometheus.ts              #   PromQL query helper
 │           └── index.ts                   #   Express app + WebSocket + API routes
 ├── charts/
