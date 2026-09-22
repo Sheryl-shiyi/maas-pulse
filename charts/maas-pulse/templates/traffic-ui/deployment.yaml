@@ -50,6 +50,8 @@ spec:
               value: {{ .Values.trafficUI.userGroups | default "" | quote }}
             - name: SUBSCRIPTION_NAMESPACE
               value: {{ .Values.trafficUI.subscriptionNamespace | default "models-as-a-service" | quote }}
+            - name: MODELS_NAMESPACE
+              value: {{ .Values.modelsNamespace | default "llm" | quote }}
             {{- if .Values.trafficUI.apiKeysSecret }}
             - name: USER_API_KEYS
               valueFrom:
@@ -63,6 +65,18 @@ spec:
                   name: maas-pulse-ui-token
                   key: token
                   optional: true
+            {{- if .Values.autoscaling.enabled }}
+            {{- $scaleNames := list }}
+            {{- range .Values.autoscaling.models }}
+            {{- $scaleNames = append $scaleNames .name }}
+            {{- end }}
+            - name: AUTOSCALE_MODELS
+              value: {{ $scaleNames | join "," | quote }}
+            - name: AUTOSCALE_MAX_REPLICAS
+              value: {{ (index .Values.autoscaling.models 0).maxReplicas | default 2 | quote }}
+            - name: AUTOSCALE_COOLDOWN
+              value: {{ .Values.autoscaling.cooldownSeconds | default 60 | quote }}
+            {{- end }}
             {{- if .Values.oidc.enabled }}
             - name: OIDC_ISSUER_URL
               value: {{ .Values.oidc.issuerUrl | default (printf "https://keycloak.%s/realms/maas" .Values.global.wildcardDomain) | quote }}

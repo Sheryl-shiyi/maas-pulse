@@ -8,6 +8,8 @@ import { initPrometheus, startPolling, stopPolling } from './prometheus.js';
 import { startTraffic, stopTraffic, isRunning } from './traffic.js';
 import { initChargeback, getChargebackData, updateModelRate } from './chargeback.js';
 import { startSubscriptionWatcher, getWatchedRateLimits } from './subscription-watcher.js';
+import { startDeploymentWatcher, getWatchedReplicas } from './deployment-watcher.js';
+import { initAutoscaler } from './autoscaler.js';
 import { initOidc, createOidcRouter } from './oidc.js';
 import type { AppConfig, ClientEvent } from './types.js';
 
@@ -131,6 +133,10 @@ setClientConnectHandler((ws) => {
   for (const [user, rateLimits] of watched) {
     sendTo(ws, { type: 'rate_limit_update', user, rateLimits });
   }
+  const replicas = getWatchedReplicas();
+  for (const [model, state] of replicas) {
+    sendTo(ws, { type: 'scale_update', model, replicas: state.replicas, desiredReplicas: state.desired });
+  }
 });
 
 setClientMessageHandler((event: ClientEvent) => {
@@ -161,6 +167,27 @@ const subscriptionNs = process.env['SUBSCRIPTION_NAMESPACE'] || 'models-as-a-ser
 const watchUsers = config.users.filter(u => u.group).map(u => ({ name: u.name, group: u.group }));
 if (watchUsers.length > 0) {
   startSubscriptionWatcher(watchUsers, subscriptionNs);
+}
+
+const modelsNs = process.env['MODELS_NAMESPACE'] || 'llm';
+const internalModels = config.models.filter(m => m.type === 'internal');
+if (internalModels.length > 0) {
+  startDeploymentWatcher(internalModels, modelsNs);
+}
+
+const autoscaleModelNames = (process.env['AUTOSCALE_MODELS'] || '').split(',').filter(Boolean);
+const autoscaleMaxReplicas = parseInt(process.env['AUTOSCALE_MAX_REPLICAS'] || '2');
+const autoscaleCooldown = parseInt(process.env['AUTOSCALE_COOLDOWN'] || '60');
+if (autoscaleModelNames.length > 0) {
+  initAutoscaler({
+    models: autoscaleModelNames.map(name => ({
+      name: name.trim(),
+      minReplicas: 1,
+      maxReplicas: autoscaleMaxReplicas,
+    })),
+    namespace: modelsNs,
+    cooldownSeconds: autoscaleCooldown,
+  });
 }
 
 const port = parseInt(process.env['PORT'] || '3001');

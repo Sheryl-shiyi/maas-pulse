@@ -1,0 +1,3 @@
+{{/* Auto-scaling is now handled by the BFF (Method B). */}}
+{{/* The BFF patches LLMInferenceService replicas directly via K8s API. */}}
+{{/* KEDA ScaledObject approach was removed due to KEDA/KServe controller conflict. */}}

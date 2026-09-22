@@ -22,6 +22,7 @@ export type ServerEvent =
   | { type: 'model_status'; model: string; queueDepth: number; latencyP95Ms: number; kvCachePercent: number; status: ModelStatus }
   | { type: 'rate_limit_reset'; user: string; model: string }
   | { type: 'rate_limit_update'; user: string; rateLimits: Record<string, string> }
+  | { type: 'scale_update'; model: string; replicas: number; desiredReplicas: number }
   | { type: 'traffic_started'; pattern: TrafficPattern }
   | { type: 'traffic_stopped' };
 
@@ -60,6 +61,8 @@ export interface ModelState {
   queueDepth: number;
   latencyP95Ms: number;
   kvCachePercent: number;
+  replicas: number;
+  desiredReplicas: number;
 }
 
 export interface UserState {

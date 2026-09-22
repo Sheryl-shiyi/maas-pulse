@@ -63,13 +63,29 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
 
       ctx.clearRect(0, 0, w, h);
 
+      // Compute model box positions (one box per replica)
+      const modelRectW = 150;
+      const modelRectH = 56;
+      const boxes: { modelIdx: number; replicaIdx: number; provisioning: boolean; x: number; y: number }[] = [];
+      for (let i = 0; i < models.length; i++) {
+        const m = models[i]!;
+        const total = Math.max(m.replicas, m.desiredReplicas);
+        for (let r = 0; r < total; r++) {
+          boxes.push({ modelIdx: i, replicaIdx: r, provisioning: r >= m.replicas, x: 0, y: 0 });
+        }
+      }
+      for (let i = 0; i < boxes.length; i++) {
+        boxes[i]!.x = layout.modelX;
+        boxes[i]!.y = (h * (i + 1)) / (boxes.length + 1);
+      }
+
       // Draw edges (user → gateway)
       for (const uPos of layout.userPositions) {
         drawCurve(ctx, uPos.x, uPos.y, layout.gatewayX, layout.gatewayY, '#1e293b');
       }
-      // Draw edges (gateway → model)
-      for (const mPos of layout.modelPositions) {
-        drawCurve(ctx, layout.gatewayX, layout.gatewayY, mPos.x, mPos.y, '#1e293b');
+      // Draw edges (gateway → model boxes)
+      for (const box of boxes) {
+        drawCurve(ctx, layout.gatewayX, layout.gatewayY, box.x, box.y, box.provisioning ? '#111827' : '#1e293b');
       }
 
       // Draw particles
@@ -81,7 +97,9 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
         if (userIdx < 0 || modelIdx < 0) continue;
 
         const uPos = layout.userPositions[userIdx]!;
-        const mPos = layout.modelPositions[modelIdx]!;
+        const readyBoxes = boxes.filter(b => b.modelIdx === modelIdx && !b.provisioning);
+        if (readyBoxes.length === 0) continue;
+        const mPos = readyBoxes[simpleHash(req.requestId) % readyBoxes.length]!;
         const color = USER_COLORS[userIdx % USER_COLORS.length]!;
 
         let pos: { x: number; y: number } | null = null;
@@ -141,19 +159,44 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
         }
       }
 
-      // Draw model nodes
-      const modelRectW = 150;
-      const modelRectH = 56;
+      // Draw model boxes (one per replica)
+      for (const box of boxes) {
+        const model = models[box.modelIdx]!;
+        const totalBoxes = Math.max(model.replicas, model.desiredReplicas);
+
+        if (box.provisioning) {
+          ctx.beginPath();
+          ctx.roundRect(box.x - modelRectW / 2, box.y - modelRectH / 2, modelRectW, modelRectH, 10);
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
+          ctx.fill();
+          ctx.setLineDash([6, 4]);
+          ctx.strokeStyle = '#f59e0b';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          ctx.setLineDash([]);
+          drawText(ctx, 'Starting...', box.x, box.y, '#f59e0b', 13, 'bold');
+        } else {
+          const statusColor = STATUS_COLORS[model.status] || '#4caf50';
+          drawRoundedRect(ctx, box.x - modelRectW / 2, box.y - modelRectH / 2, modelRectW, modelRectH, 10, statusColor);
+          const label = totalBoxes > 1 ? `${model.displayName} #${box.replicaIdx + 1}` : model.displayName;
+          drawText(ctx, label, box.x, box.y - 8, '#fff', 13, 'bold');
+          if (model.type === 'internal') {
+            drawText(ctx, `Q:${model.queueDepth} KV:${model.kvCachePercent}%`, box.x, box.y + 12, 'rgba(255,255,255,0.7)', 11);
+          } else {
+            drawText(ctx, 'external', box.x, box.y + 12, 'rgba(255,255,255,0.7)', 11);
+          }
+        }
+      }
+
+      // Draw "Scaling up..." between ready and provisioning boxes
       for (let i = 0; i < models.length; i++) {
         const model = models[i]!;
-        const pos = layout.modelPositions[i]!;
-        const statusColor = STATUS_COLORS[model.status] || '#4caf50';
-        drawRoundedRect(ctx, pos.x - modelRectW / 2, pos.y - modelRectH / 2, modelRectW, modelRectH, 10, statusColor);
-        drawText(ctx, model.displayName, pos.x, pos.y - 8, '#fff', 13, 'bold');
-        if (model.type === 'internal') {
-          drawText(ctx, `Q:${model.queueDepth} KV:${model.kvCachePercent}%`, pos.x, pos.y + 12, 'rgba(255,255,255,0.7)', 11);
-        } else {
-          drawText(ctx, 'external', pos.x, pos.y + 12, 'rgba(255,255,255,0.7)', 11);
+        if (model.desiredReplicas <= model.replicas) continue;
+        const modelBoxes = boxes.filter(b => b.modelIdx === i);
+        const lastReady = [...modelBoxes].filter(b => !b.provisioning).pop();
+        const firstProv = modelBoxes.find(b => b.provisioning);
+        if (lastReady && firstProv) {
+          drawText(ctx, 'Scaling up...', lastReady.x, (lastReady.y + firstProv.y) / 2, '#f59e0b', 14, 'bold');
         }
       }
 
@@ -229,6 +272,14 @@ function drawRateLimitCard(
     ctx.fillText(blocked ? 'BLOCKED' : limit, x + cardW - padX, rowY);
   }
 
+}
+
+function simpleHash(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
 }
 
 function drawCurve(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string) {

@@ -14,7 +14,7 @@ const MAX_FEED = 50;
 const MAX_PARTICLES = 100;
 
 function initialModelState(info: ModelInfo): ModelState {
-  return { ...info, status: 'healthy', queueDepth: 0, latencyP95Ms: 0, kvCachePercent: 0 };
+  return { ...info, status: 'healthy', queueDepth: 0, latencyP95Ms: 0, kvCachePercent: 0, replicas: 1, desiredReplicas: 1 };
 }
 
 function initialUserState(info: UserInfo): UserState {
@@ -210,6 +210,14 @@ export default function App() {
             latencyP95Ms: event.latencyP95Ms,
             kvCachePercent: event.kvCachePercent,
           } : m
+        ));
+        break;
+
+      case 'scale_update':
+        setModels(prev => prev.map(m =>
+          m.name === event.model || m.name.endsWith(event.model)
+            ? { ...m, replicas: event.replicas, desiredReplicas: event.desiredReplicas }
+            : m
         ));
         break;
 

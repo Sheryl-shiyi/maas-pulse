@@ -1,5 +1,6 @@
 import type { ModelInfo, ModelStatus } from './types.js';
 import { broadcast } from './ws.js';
+import { checkAndScale } from './autoscaler.js';
 
 let prometheusUrl = '';
 let bearerToken = '';
@@ -38,8 +39,8 @@ export async function query(promql: string): Promise<Record<string, string | num
 }
 
 function computeStatus(queueDepth: number, kvCache: number): ModelStatus {
-  if (queueDepth > 15 || kvCache > 90) return 'overloaded';
-  if (queueDepth > 5 || kvCache > 70) return 'busy';
+  if (queueDepth > 10 || kvCache > 85) return 'overloaded';
+  if (queueDepth > 5 || kvCache > 60) return 'busy';
   return 'healthy';
 }
 
@@ -50,6 +51,8 @@ async function pollModelMetrics(models: ModelInfo[]) {
     query('vllm:kv_cache_usage_perc'),
     query('histogram_quantile(0.95, rate(vllm:e2e_request_latency_seconds_bucket[1m]))'),
   ]);
+
+  const scaleMetrics: { model: string; queueDepth: number; kvCachePercent: number }[] = [];
 
   for (const model of models) {
     if (model.type === 'external') continue;
@@ -72,7 +75,11 @@ async function pollModelMetrics(models: ModelInfo[]) {
       kvCachePercent: Math.round(kvPercent),
       status: computeStatus(queueDepth, kvPercent),
     });
+
+    scaleMetrics.push({ model: baseName, queueDepth, kvCachePercent: Math.round(kvPercent) });
   }
+
+  await checkAndScale(scaleMetrics);
 }
 
 export function startPolling(models: ModelInfo[], intervalMs = 3000) {
