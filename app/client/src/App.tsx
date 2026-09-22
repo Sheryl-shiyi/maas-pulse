@@ -47,6 +47,7 @@ export default function App() {
         const newUsers = event.users.map(initialUserState);
         usersRef.current = newUsers;
         setUsers(newUsers);
+        setTrafficRunning(event.trafficRunning);
         break;
       }
 

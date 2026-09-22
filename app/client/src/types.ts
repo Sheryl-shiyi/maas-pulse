@@ -14,7 +14,7 @@ export type ModelStatus = 'healthy' | 'busy' | 'overloaded';
 export type TrafficPattern = 'concurrent' | 'sequential' | 'random_burst';
 
 export type ServerEvent =
-  | { type: 'config'; models: ModelInfo[]; users: UserInfo[] }
+  | { type: 'config'; models: ModelInfo[]; users: UserInfo[]; trafficRunning: boolean }
   | { type: 'request_start'; requestId: string; user: string; model: string; question: string }
   | { type: 'request_complete'; requestId: string; user: string; model: string; latencyMs: number; tokensUsed: number; answer: string }
   | { type: 'rate_limited'; requestId: string; user: string; model: string }

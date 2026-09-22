@@ -128,6 +128,7 @@ setClientConnectHandler((ws) => {
     type: 'config',
     models: config.models,
     users: config.users.map(u => ({ name: u.name, displayName: u.displayName, rateLimit: u.rateLimit })),
+    trafficRunning: isRunning(),
   });
   const watched = getWatchedRateLimits();
   for (const [user, rateLimits] of watched) {
