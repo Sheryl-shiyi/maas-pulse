@@ -42,6 +42,17 @@ function decodeJwtClaims(jwt: string): Record<string, unknown> {
   return JSON.parse(Buffer.from(payload, 'base64url').toString());
 }
 
+const CET_FMT = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Europe/Berlin',
+  year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', second: '2-digit',
+  hour12: false,
+});
+
+function toCET(date: Date): string {
+  return CET_FMT.format(date) + ' CET';
+}
+
 export async function initOidc(): Promise<boolean> {
   const issuerUrl = process.env['OIDC_ISSUER_URL'] || '';
   const clientId = process.env['OIDC_CLIENT_ID'] || 'maas-oidc';
@@ -180,9 +191,9 @@ export function createOidcRouter(): Router {
         username: claims['preferred_username'] as string,
         groups: (claims['groups'] as string[]) || [],
         issuer: claims['iss'] as string,
-        tokenExp: new Date((claims['exp'] as number) * 1000).toISOString().replace(/.*T/, '').replace(/\.\d+/, ''),
+        tokenExp: toCET(new Date((claims['exp'] as number) * 1000)),
         subscription: keyData['subscription'] as string,
-        keyExpires: keyData['expiresAt'] as string,
+        keyExpires: toCET(new Date(keyData['expiresAt'] as string)),
         apiKeyMasked: key.substring(0, 18) + '…',
       };
 
