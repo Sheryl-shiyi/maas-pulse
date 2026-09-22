@@ -13,6 +13,7 @@ interface OidcSession {
   issuer?: string;
   tokenExp?: string;
   subscription?: string;
+  apiKey?: string;
   apiKeyMasked?: string;
   keyExpires?: string;
 }
@@ -40,6 +41,7 @@ export function OidcView() {
   const [burstResult, setBurstResult] = useState<BurstResult | null>(null);
   const [chatLoading, setChatLoading] = useState(false);
   const [burstLoading, setBurstLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     fetch('/api/oidc/config').then(r => r.json()).then(setConfig);
@@ -162,7 +164,21 @@ export function OidcView() {
             <div style={s.kvLabel}>subscription</div>
             <div style={s.kvValue}><b>{session?.subscription}</b></div>
             <div style={s.kvLabel}>api key</div>
-            <div style={s.kvValue}><code style={s.codeKey}>{session?.apiKeyMasked}</code></div>
+            <div style={s.kvValue}>
+              <code style={s.codeKey}>{session?.apiKey}</code>
+              <button
+                style={s.copyBtn}
+                onClick={() => {
+                  if (session?.apiKey) {
+                    navigator.clipboard.writeText(session.apiKey);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  }
+                }}
+              >
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
             <div style={s.kvLabel}>expires</div>
             <div style={s.kvValue}>{session?.keyExpires}</div>
           </div>
@@ -246,7 +262,11 @@ const s: Record<string, React.CSSProperties> = {
   muted: { color: '#64748b', fontSize: 13, margin: 0 },
   hint: { color: '#475569', fontSize: 13 },
   code: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 13, color: '#94a3b8' },
-  codeKey: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 13, color: '#94a3b8', background: '#1e293b', padding: '2px 6px', borderRadius: 4 },
+  codeKey: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 13, color: '#94a3b8', background: '#1e293b', padding: '2px 6px', borderRadius: 4, wordBreak: 'break-all' as const },
+  copyBtn: {
+    marginLeft: 8, background: '#334155', color: '#94a3b8', border: 'none', borderRadius: 4,
+    padding: '2px 8px', fontSize: 11, cursor: 'pointer', verticalAlign: 'middle',
+  },
 
   kv: { display: 'grid', gridTemplateColumns: '150px 1fr', gap: '8px 14px', marginTop: 10 },
   kvLabel: { color: '#64748b', fontSize: 13 },
