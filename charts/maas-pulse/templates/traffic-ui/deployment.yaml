@@ -65,7 +65,7 @@ spec:
                   optional: true
             {{- if .Values.oidc.enabled }}
             - name: OIDC_ISSUER_URL
-              value: {{ .Values.oidc.issuerUrl | quote }}
+              value: {{ .Values.oidc.issuerUrl | default (printf "https://keycloak.%s/realms/maas" .Values.global.wildcardDomain) | quote }}
             - name: OIDC_CLIENT_ID
               value: {{ .Values.oidc.clientId | default "maas-oidc" | quote }}
             - name: OIDC_REDIRECT_URI

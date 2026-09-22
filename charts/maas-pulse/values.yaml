@@ -191,8 +191,9 @@ oidc:
   enabled: false
   keycloakNamespace: keycloak
   clientId: maas-oidc
-  # issuerUrl must be set when enabled — derived from Keycloak route:
-  #   https://<keycloak-host>/realms/maas
+  # issuerUrl is auto-derived from global.wildcardDomain if left empty:
+  #   https://keycloak.<wildcardDomain>/realms/maas
+  # Override only if Keycloak uses a custom hostname.
   issuerUrl: ""
   ttl: 300
   # Models that OIDC groups can access (must match names in models/externalModels)

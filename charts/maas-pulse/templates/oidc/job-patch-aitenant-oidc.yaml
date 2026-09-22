@@ -49,7 +49,7 @@ data:
     echo "Patching AITenant with OIDC configuration..."
     oc patch aitenants.maas.opendatahub.io models-as-a-service \
       -n ai-tenants --type merge \
-      -p '{"spec":{"oidc":{"clientId":"{{ .Values.oidc.clientId }}","issuerUrl":"{{ .Values.oidc.issuerUrl }}","ttl":{{ .Values.oidc.ttl }}}}}'
+      -p '{"spec":{"oidc":{"clientId":"{{ .Values.oidc.clientId }}","issuerUrl":"{{ .Values.oidc.issuerUrl | default (printf "https://keycloak.%s/realms/maas" .Values.global.wildcardDomain) }}","ttl":{{ .Values.oidc.ttl }}}}}'
     echo "AITenant OIDC patch applied successfully."
 ---
 apiVersion: batch/v1
