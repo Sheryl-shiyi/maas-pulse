@@ -130,17 +130,16 @@ function handleEvent(event: { type: string; object: Record<string, any> }) {
     perModel[modelName] = formatLimit(min.limit, min.window || '1m');
   }
 
-  if (Object.keys(perModel).length === 0) return;
-
   for (const group of groups) {
     const users = groupToUsers.get(group);
     if (!users) continue;
-    const summary = [...new Set(Object.values(perModel))].join(', ');
+    const summary = Object.keys(perModel).length > 0
+      ? [...new Set(Object.values(perModel))].join(', ')
+      : '(no models)';
     console.log(`[subscription-watcher] ${subName} (group=${group}) updated: ${summary}`);
     for (const user of users) {
-      const existing = rateLimitsCache.get(user) || {};
-      rateLimitsCache.set(user, { ...existing, ...perModel });
-      broadcast({ type: 'rate_limit_update', user, rateLimits: rateLimitsCache.get(user)! });
+      rateLimitsCache.set(user, perModel);
+      broadcast({ type: 'rate_limit_update', user, rateLimits: perModel });
     }
   }
 }

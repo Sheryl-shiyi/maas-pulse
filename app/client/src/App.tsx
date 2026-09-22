@@ -171,7 +171,7 @@ export default function App() {
       case 'rate_limit_update':
         setUsers(prev => {
           const next = prev.map(u =>
-            u.name === event.user ? { ...u, rateLimits: { ...u.rateLimits, ...event.rateLimits } } : u
+            u.name === event.user ? { ...u, rateLimits: event.rateLimits } : u
           );
           usersRef.current = next;
           return next;
