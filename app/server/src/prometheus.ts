@@ -54,10 +54,11 @@ async function pollModelMetrics(models: ModelInfo[]) {
   for (const model of models) {
     if (model.type === 'external') continue;
 
-    const runningVal = running.find(r => String(r['model_name']).includes(model.name));
-    const waitingVal = waiting.find(r => String(r['model_name']).includes(model.name));
-    const kvVal = kvCache.find(r => String(r['model_name']).includes(model.name));
-    const latVal = latency.find(r => String(r['model_name']).includes(model.name));
+    const baseName = model.name.replace(/^publishers\/llm\/models\//, '');
+    const runningVal = running.find(r => String(r['model_name']) === baseName);
+    const waitingVal = waiting.find(r => String(r['model_name']) === baseName);
+    const kvVal = kvCache.find(r => String(r['model_name']) === baseName);
+    const latVal = latency.find(r => String(r['model_name']) === baseName);
 
     const queueDepth = (Number(runningVal?.value) || 0) + (Number(waitingVal?.value) || 0);
     const kvPercent = (Number(kvVal?.value) || 0) * 100;
@@ -74,7 +75,7 @@ async function pollModelMetrics(models: ModelInfo[]) {
   }
 }
 
-export function startPolling(models: ModelInfo[], intervalMs = 5000) {
+export function startPolling(models: ModelInfo[], intervalMs = 3000) {
   stopPolling();
   pollModelMetrics(models);
   pollInterval = setInterval(() => pollModelMetrics(models), intervalMs);

@@ -75,7 +75,7 @@ export function Controls({ models, users, trafficRunning, connected, send }: Con
           <input
             type="range"
             min={0.2}
-            max={5}
+            max={10}
             step={0.2}
             value={rate}
             onChange={e => setRate(parseFloat(e.target.value))}
