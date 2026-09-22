@@ -8,6 +8,8 @@ Visualize and monitor live inference traffic across multiple AI models served th
 - [Detailed description](#detailed-description)
   - [See it in action](#see-it-in-action)
   - [Architecture diagrams](#architecture-diagrams)
+  - [Cost and Chargeback](#cost-and-chargeback)
+  - [OIDC Authentication](#oidc-authentication)
 - [Requirements](#requirements)
   - [Minimum hardware requirements](#minimum-hardware-requirements)
   - [Minimum software requirements](#minimum-software-requirements)
@@ -42,7 +44,7 @@ A custom web UI (maas-pulse Traffic UI) provides real-time traffic flow visualiz
 
 ### Architecture diagrams
 
-**System architecture** — shows how users, the MaaS gateway, internal/external models, telemetry pipeline, and the traffic UI fit together:
+**System architecture** — shows how users, the MaaS gateway, internal/external models, telemetry pipeline, OIDC authentication, and the traffic UI fit together:
 
 ```mermaid
 graph LR
@@ -50,6 +52,7 @@ graph LR
         U1["VIP (admin)"]
         U2["user1"]
         U3["user2-5"]
+        U4["OIDC Users<br/>(maas-user,<br/>restricted-user)"]
     end
 
     subgraph OCP["OpenShift Cluster"]
@@ -62,8 +65,8 @@ graph LR
                     M2["Qwen3 8B<br/>A10G GPU"]
                 end
                 subgraph ExternalModels["External Models (Proxied)"]
-                    M3["Gemini Flash Lite"]
-                    M4["GPT-4.1 Nano"]
+                    M3["Gemini Flash Lite<br/>via ExternalProvider"]
+                    M4["GPT-4.1 Nano<br/>via ExternalProvider"]
                 end
             end
         end
@@ -71,17 +74,20 @@ graph LR
         subgraph Telemetry["Telemetry Pipeline"]
             ISTIO["Istio Telemetry"]
             KTP["Kuadrant TelemetryPolicy"]
-            PROM["Prometheus"]
-            GRAF["Grafana"]
+            PROM["Prometheus (User Workload)"]
         end
 
-        subgraph TrafficUI["maas-pulse Traffic UI"]
+        subgraph TrafficUI["maas-pulse"]
             BFF["Node.js BFF<br/>(Express + WebSocket)"]
             SPA["React SPA<br/>(Canvas Topology)"]
-            WATCH["Subscription<br/>Watcher"]
+            WATCH["Subscription Watcher"]
+            COST["Cost & Chargeback"]
         end
 
-        KC["Keycloak (OAuth)"]
+        subgraph OIDC["External OIDC Authentication"]
+            KC["Keycloak (maas realm)"]
+            REALM["Groups:<br/>data-scientists<br/>ml-engineers"]
+        end
     end
 
     subgraph ExtAPIs["External APIs"]
@@ -89,20 +95,30 @@ graph LR
         OPENAI["OpenAI"]
     end
 
-    U1 & U2 & U3 -->|"/v1/chat/completions"| GW
-    GW --> AUTH
-    AUTH --> M1 & M2
+    U1 & U2 & U3 -->|"API key<br/>/v1/chat/completions"| GW
+    U4 -->|"1. OIDC login"| KC
+    KC -->|"2. OIDC token (groups claim)"| U4
+    U4 -->|"3. Exchange token for API key"| GW
+    U4 -->|"4. Inference with API key"| GW
+
+    GW -->|"body-based routing"| AUTH
+    AUTH -->|"rate limit + auth check"| M1 & M2
     AUTH -->|"credential injection"| M3 & M4
-    M3 --> GOOGLE
-    M4 --> OPENAI
+    M3 -->|"HTTPS"| GOOGLE
+    M4 -->|"HTTPS"| OPENAI
 
-    GW -.-> ISTIO & KTP
-    ISTIO & KTP -.-> PROM -.-> GRAF
+    KC -.->|"group to subscription mapping"| AUTH
+    REALM -.-> KC
 
-    BFF --> GW
-    BFF -.->|"PromQL"| PROM
-    WATCH -.->|"K8s Watch<br/>MaaSSubscription"| AUTH
-    SPA <-->|"WebSocket"| BFF
+    GW -.->|"request metrics"| ISTIO
+    GW -.->|"auth/model labels"| KTP
+    ISTIO & KTP -.->|"scrape"| PROM
+
+    BFF -->|"inference requests"| GW
+    BFF -.->|"PromQL polling"| PROM
+    COST -.->|"token to cost query"| PROM
+    WATCH -.->|"K8s Watch API MaaSSubscription"| AUTH
+    SPA <-->|"WebSocket /ws"| BFF
     U1 & U2 & U3 -->|"browser"| SPA
 ```
 
@@ -150,6 +166,108 @@ sequenceDiagram
 ```
 
 > Source: [`docs/images/traffic-ui-flow.mmd`](docs/images/traffic-ui-flow.mmd)
+
+### Cost and Chargeback
+
+The **Cost & Chargeback** tab provides real-time usage attribution and cost estimation across all models and users. It queries Prometheus for three key metrics:
+
+- **`authorized_hits`** — token consumption per user per model (input + output tokens)
+- **`authorized_calls`** — total request count per user per subscription
+- **`limited_calls`** — rate-limited (429) requests
+
+Token counts are converted to dollar estimates using configurable per-model rates (editable in the UI). The dashboard shows:
+
+| View | Details |
+|---|---|
+| Overview cards | Total cost, total tokens, total requests, rate-limited count |
+| Cost by User | Per-user cost breakdown with percentage share bars |
+| Cost by Model | Per-model cost with input/output rate hints |
+| Pricing Config | Editable input/output rates per model ($/1M tokens) |
+| Detailed Breakdown | Sortable table of every user x model combination |
+
+Time range selector: 1h, 6h, 24h, 7d, All Time. Auto-refreshes every 30 seconds.
+
+**API endpoints:**
+- `GET /api/chargeback?range=1h|6h|24h|7d|all` — returns current cost data
+- `PUT /api/chargeback/rates` — update per-model pricing (`{ model, inputPer1M, outputPer1M }`)
+
+### OIDC Authentication
+
+maas-pulse supports external OIDC authentication via Keycloak, enabling group-based access control with per-group rate limits. This is an alternative to admin-issued API keys — users authenticate with Keycloak and exchange their OIDC token for a MaaS API key.
+
+**OIDC flow** (4 steps):
+
+```mermaid
+sequenceDiagram
+    participant U as OIDC User<br/>(Browser)
+    participant APP as maas-ui.py<br/>(localhost:8090)
+    participant KC as Keycloak<br/>(maas realm)
+    participant MAAS as MaaS Gateway
+    participant MODEL as LLM Model<br/>(Qwen3 / Nemotron)
+
+    Note over U,MODEL: Step 1 — Sign in with Keycloak (Authorization Code + PKCE)
+    U->>APP: Click "Sign in with Keycloak"
+    APP->>U: Redirect to Keycloak /auth
+    U->>KC: Username + password
+    KC->>U: Authorization code
+    U->>APP: Callback with code
+    APP->>KC: Exchange code + PKCE verifier
+    KC->>APP: OIDC access token (JWT)
+
+    Note over U,MODEL: Step 2 — Inspect the token
+    APP->>APP: Decode JWT (no signature check)
+    Note right of APP: Claims:<br/>preferred_username: maas-user<br/>groups: [data-scientists, ml-engineers]
+
+    Note over U,MODEL: Step 3 — Exchange OIDC token for MaaS API key
+    APP->>MAAS: POST /maas-api/v1/api-keys<br/>Authorization: Bearer <OIDC token>
+    MAAS->>MAAS: Verify token with Keycloak JWKS
+    MAAS->>MAAS: Map groups → MaaSSubscription<br/>ml-engineers → oidc-ml-engineers (50K tokens/min)
+    MAAS->>APP: API key (sk-oai-...) + subscription info
+
+    Note over U,MODEL: Step 4 — Call the model with the API key
+    APP->>MAAS: POST /v1/chat/completions<br/>Authorization: Bearer sk-oai-...<br/>model: qwen3-8b-fp8
+    MAAS->>MAAS: Validate API key + rate limit check
+    MAAS->>MODEL: Forward request
+    MODEL->>MAAS: Response + tokens used
+    MAAS->>APP: Chat completion response
+    APP->>U: Display answer
+```
+
+> Source: [`docs/images/oidc-flow.mmd`](docs/images/oidc-flow.mmd)
+
+**What gets deployed:**
+
+| Resource | Purpose |
+|---|---|
+| `KeycloakRealmImport` | Creates `maas` realm with users, groups, and `maas-oidc` client |
+| `MaaSAuthPolicy` (per group) | Grants OIDC group access to specified models |
+| `MaaSSubscription` (per group) | Sets per-group token rate limits |
+| `Job` (patch-aitenant-oidc) | Patches AITenant with OIDC issuer URL and client ID |
+
+**Default groups and rate limits:**
+
+| Group | Priority | Token limit |
+|---|---|---|
+| `data-scientists` | 30 | 1K-2K tokens/min per model |
+| `ml-engineers` | 40 | 50K-100K tokens/min per model |
+
+**Enable via Helm:**
+```bash
+helm upgrade <release> charts/maas-pulse \
+  --set oidc.enabled=true \
+  --set oidc.issuerUrl=https://<keycloak-host>/realms/maas
+```
+
+**Run the demo app:**
+```bash
+python3 demo/oidc/maas-ui.py \
+  --from-cluster \
+  --model-served 'publishers/llm/models/qwen3-8b-fp8' \
+  --model-path 'qwen3-8b-fp8' \
+  --port 8090
+```
+
+Alternatively, use `scripts/setup-oidc.sh` for standalone setup without Helm.
 
 ## Requirements
 
@@ -300,7 +418,14 @@ oc delete namespace llm
 ├── environment.yaml.tpl                   # Cluster-specific values template
 ├── app/                                   # maas-pulse Traffic UI application
 │   ├── client/                            #   React SPA (Vite + Canvas topology)
+│   │   └── src/components/
+│   │       ├── ChargebackView.tsx          #   Cost & Chargeback dashboard
+│   │       └── ...                        #   Traffic topology, controls, etc.
 │   └── server/                            #   Node.js BFF (Express + WebSocket + K8s Watch)
+│       └── src/
+│           ├── chargeback.ts              #   Prometheus → cost conversion logic
+│           ├── prometheus.ts              #   PromQL query helper
+│           └── index.ts                   #   Express app + WebSocket + API routes
 ├── charts/
 │   ├── dependency-operators/              # Helm chart: operators + operands
 │   │   ├── charts/install-operators/      #   Sub-chart for OLM subscriptions
@@ -310,15 +435,27 @@ oc delete namespace llm
 │       ├── charts/keycloak/               #   Sub-chart for Keycloak + OAuth
 │       ├── templates/models/              #   LLMInferenceService, ExternalProvider,
 │       │                                  #   ExternalModel, MaaSModelRef, etc.
+│       ├── templates/oidc/                #   OIDC authentication resources
+│       │   ├── keycloak-realm-import.yaml #     Keycloak realm with users + groups
+│       │   ├── auth-policies.yaml         #     MaaSAuthPolicy per OIDC group
+│       │   ├── subscriptions.yaml         #     MaaSSubscription per group
+│       │   └── job-patch-aitenant-oidc.yaml #   Post-install AITenant OIDC patch
 │       ├── templates/telemetry*.yaml      #   Istio + Kuadrant telemetry config
 │       ├── all-dependencies.yaml          #   Enables Keycloak, monitoring, Kuadrant
-│       └── values.yaml                    #   Models, subscriptions, rate limits
+│       └── values.yaml                    #   Models, subscriptions, rate limits, OIDC
+├── demo/
+│   └── oidc/
+│       └── maas-ui.py                     # Standalone OIDC demo app (4-step flow)
 ├── docs/
 │   ├── examples/grafana.yaml              # Grafana deployment with OAuth + Prometheus
 │   ├── images/                            # Architecture diagrams (Mermaid)
 │   │   ├── architecture.mmd              #   System architecture diagram
-│   │   └── traffic-ui-flow.mmd           #   Traffic UI sequence diagram
+│   │   ├── traffic-ui-flow.mmd           #   Traffic UI sequence diagram
+│   │   └── oidc-flow.mmd                 #   OIDC authentication flow diagram
 │   └── reference/test-model-access.yaml   # Standalone model endpoint test pod
+├── scripts/
+│   ├── setup-oidc.sh                      # Standalone OIDC setup (no Helm required)
+│   └── realm-import-standalone.yaml       # Portable Keycloak realm definition
 └── README.md
 ```
 
