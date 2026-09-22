@@ -69,9 +69,19 @@ function extractModelFromNamespace(ns: string): string {
   return cleaned;
 }
 
+function normalizeModelName(name: string): string {
+  for (const known of knownModelNames) {
+    if (name === known) return known;
+    const knownDashed = known.replace(/\./g, '-');
+    if (name === knownDashed) return known;
+    if (name.startsWith(known + '-') || name.startsWith(knownDashed + '-')) return known;
+  }
+  return name;
+}
+
 function resolveModel(result: Record<string, string | number>): string {
   if (result['model'] && String(result['model']) !== '') {
-    return String(result['model']);
+    return normalizeModelName(String(result['model']));
   }
   if (result['limitador_namespace']) {
     return extractModelFromNamespace(String(result['limitador_namespace']));
