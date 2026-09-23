@@ -34,26 +34,72 @@ export function startDeploymentWatcher(
   console.log(`[deployment-watcher] watching deployments in ${namespace}`);
   console.log(`[deployment-watcher] deploy→model mapping: ${[...deployToModel.entries()].map(([d, m]) => `${d}→${m}`).join(', ')}`);
   watching = true;
-  watch();
+  listThenWatch();
 }
 
 export function stopDeploymentWatcher() {
   watching = false;
 }
 
-function watch(resourceVersion?: string) {
+function getHttpsOptions(): { ca?: Buffer } {
+  if (fs.existsSync(SA_CA_PATH)) {
+    return { ca: fs.readFileSync(SA_CA_PATH) };
+  }
+  return {};
+}
+
+function listThenWatch() {
   if (!watching) return;
 
   const token = fs.readFileSync(SA_TOKEN_PATH, 'utf8');
-  let caOpts: { ca?: Buffer } = {};
-  if (fs.existsSync(SA_CA_PATH)) {
-    caOpts.ca = fs.readFileSync(SA_CA_PATH);
-  }
+  const caOpts = getHttpsOptions();
+  const listPath = `/apis/apps/v1/namespaces/${namespace}/deployments`;
 
-  let path = `/apis/apps/v1/namespaces/${namespace}/deployments?watch=true`;
-  if (resourceVersion) {
-    path += `&resourceVersion=${resourceVersion}`;
-  }
+  const req = https.get(`https://kubernetes.default.svc${listPath}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    ...caOpts,
+    rejectUnauthorized: true,
+  }, (res) => {
+    if (res.statusCode !== 200) {
+      console.error(`[deployment-watcher] list failed: ${res.statusCode}`);
+      if (watching) setTimeout(() => listThenWatch(), 5000);
+      return;
+    }
+
+    let data = '';
+    res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+    res.on('end', () => {
+      try {
+        const list = JSON.parse(data);
+        const rv = list.metadata?.resourceVersion;
+
+        for (const deploy of list.items || []) {
+          handleDeployment(deploy);
+        }
+
+        console.log(`[deployment-watcher] listed ${list.items?.length || 0} deployments, rv=${rv}`);
+        if (watching && rv) {
+          watch(rv);
+        }
+      } catch (err) {
+        console.error('[deployment-watcher] failed to parse list response');
+        if (watching) setTimeout(() => listThenWatch(), 5000);
+      }
+    });
+  });
+
+  req.on('error', (err: Error) => {
+    console.error(`[deployment-watcher] list error: ${err.message}`);
+    if (watching) setTimeout(() => listThenWatch(), 5000);
+  });
+}
+
+function watch(resourceVersion: string) {
+  if (!watching) return;
+
+  const token = fs.readFileSync(SA_TOKEN_PATH, 'utf8');
+  const caOpts = getHttpsOptions();
+  const path = `/apis/apps/v1/namespaces/${namespace}/deployments?watch=true&resourceVersion=${resourceVersion}&timeoutSeconds=300`;
 
   const req = https.get(`https://kubernetes.default.svc${path}`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -61,13 +107,13 @@ function watch(resourceVersion?: string) {
     rejectUnauthorized: true,
   }, (res) => {
     if (res.statusCode === 410) {
-      console.log('[deployment-watcher] resourceVersion expired, restarting watch');
-      setTimeout(() => watch(), 1000);
+      console.log('[deployment-watcher] resourceVersion expired, re-listing');
+      setTimeout(() => listThenWatch(), 1000);
       return;
     }
     if (res.statusCode !== 200) {
-      console.error(`[deployment-watcher] unexpected status ${res.statusCode}`);
-      setTimeout(() => watch(), 5000);
+      console.error(`[deployment-watcher] watch failed: ${res.statusCode}`);
+      setTimeout(() => listThenWatch(), 5000);
       return;
     }
 
@@ -85,9 +131,11 @@ function watch(resourceVersion?: string) {
           if (event.object?.metadata?.resourceVersion) {
             latestRV = event.object.metadata.resourceVersion;
           }
-          handleEvent(event);
+          if (event.type === 'ADDED' || event.type === 'MODIFIED') {
+            handleDeployment(event.object);
+          }
         } catch {
-          console.error('[deployment-watcher] failed to parse event');
+          // skip unparseable lines
         }
       }
     });
@@ -106,16 +154,13 @@ function watch(resourceVersion?: string) {
 
   req.on('error', (err: Error) => {
     console.error(`[deployment-watcher] connection error: ${err.message}`);
-    if (watching) setTimeout(() => watch(), 5000);
+    if (watching) setTimeout(() => listThenWatch(), 5000);
   });
 
   req.setTimeout(0);
 }
 
-function handleEvent(event: { type: string; object: Record<string, any> }) {
-  if (event.type !== 'ADDED' && event.type !== 'MODIFIED') return;
-
-  const deploy = event.object;
+function handleDeployment(deploy: Record<string, any>) {
   const deployName: string = deploy.metadata?.name || '';
   const modelName = deployToModel.get(deployName);
   if (!modelName) return;

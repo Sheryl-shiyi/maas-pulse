@@ -262,7 +262,7 @@ oidc:
 
 autoscaling:
   enabled: false
-  cooldownSeconds: 300
+  cooldownSeconds: 900
   models:
     - name: qwen3-8b-fp8
       minReplicas: 1
