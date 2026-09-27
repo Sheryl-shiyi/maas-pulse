@@ -1,0 +1,63 @@
+{{- if .Values.modelRegistry.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: patch-datasciencecluster
+  namespace: redhat-ods-applications
+  labels:
+    {{- include "maas-pulse.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: patch-datasciencecluster
+  labels:
+    {{- include "maas-pulse.labels" . | nindent 4 }}
+rules:
+- apiGroups: ["datasciencecluster.opendatahub.io"]
+  resources: ["datascienceclusters"]
+  verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: patch-datasciencecluster
+  labels:
+    {{- include "maas-pulse.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: patch-datasciencecluster
+subjects:
+  - kind: ServiceAccount
+    name: patch-datasciencecluster
+    namespace: redhat-ods-applications
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: patch-datasciencecluster
+  namespace: redhat-ods-applications
+  labels:
+    {{- include "maas-pulse.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 4
+  template:
+    spec:
+      serviceAccount: patch-datasciencecluster
+      serviceAccountName: patch-datasciencecluster
+      restartPolicy: Never
+      containers:
+      - name: patch
+        image: {{ .Values.global.toolsImage }}
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/bash
+        - -exc
+        - |
+          oc patch datasciencecluster default-dsc --type merge \
+            -p '{"spec":{"components":{"modelregistry":{"managementState":"Managed","registriesNamespace":"{{ .Values.modelRegistry.registriesNamespace }}"}}}}'
+{{- end }}

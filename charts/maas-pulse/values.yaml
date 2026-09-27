@@ -137,6 +137,10 @@ dashboardConfig:
   maasAuthPolicies: true
   observabilityDashboard: true
 
+modelRegistry:
+  enabled: true
+  registriesNamespace: rhoai-model-registries
+
 clusterMonitoring:
   enabled: false
   config:
