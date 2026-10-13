@@ -1,0 +1,12 @@
+// tsconfig.json excludes *.test.ts so tests stay out of dist, which also leaves
+// them unchecked — tsx strips types without verifying them. This config type-checks
+// everything, tests included, and emits nothing.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false
+  },
+  "include": ["src/**/*"],
+  "exclude": []
+}

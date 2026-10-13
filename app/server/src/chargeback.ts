@@ -1,4 +1,5 @@
 import { query } from './prometheus.js';
+import { resolveModel } from './model-names.js';
 
 export interface ModelRate {
   model: string;
@@ -58,37 +59,6 @@ export function updateModelRate(model: string, inputPer1M: number, outputPer1M: 
   modelRatesConfig[model] = { inputPer1M, outputPer1M };
 }
 
-function extractModelFromNamespace(ns: string): string {
-  const stripped = ns.replace(/^llm\//, '');
-  const cleaned = stripped.replace(/-kserve-route$/, '');
-  for (const known of knownModelNames) {
-    const knownDashed = known.replace(/\./g, '-');
-    if (cleaned === known || cleaned === knownDashed) return known;
-    if (cleaned.startsWith(knownDashed + '-') || cleaned.startsWith(known + '-')) return known;
-  }
-  return cleaned;
-}
-
-function normalizeModelName(name: string): string {
-  for (const known of knownModelNames) {
-    if (name === known) return known;
-    const knownDashed = known.replace(/\./g, '-');
-    if (name === knownDashed) return known;
-    if (name.startsWith(known + '-') || name.startsWith(knownDashed + '-')) return known;
-  }
-  return name;
-}
-
-function resolveModel(result: Record<string, string | number>): string {
-  if (result['model'] && String(result['model']) !== '') {
-    return normalizeModelName(String(result['model']));
-  }
-  if (result['limitador_namespace']) {
-    return extractModelFromNamespace(String(result['limitador_namespace']));
-  }
-  return 'unknown';
-}
-
 export async function getChargebackData(timeRange: string): Promise<ChargebackResponse> {
   const hitsQuery = timeRange === 'all'
     ? 'sum by (user, model) (authorized_hits)'
@@ -112,7 +82,7 @@ export async function getChargebackData(timeRange: string): Promise<ChargebackRe
 
   for (const h of hitsData) {
     const user = String(h['user'] || 'unknown');
-    const model = resolveModel(h as Record<string, string | number>);
+    const model = resolveModel(h as Record<string, string | number>, knownModelNames);
     const key = `${user}|${model}`;
     const tokens = Math.round(Number(h['value']) || 0);
     const rate = modelRatesConfig[model];
@@ -124,7 +94,7 @@ export async function getChargebackData(timeRange: string): Promise<ChargebackRe
 
   for (const c of callsData) {
     const user = String(c['user'] || 'unknown');
-    const model = resolveModel(c as Record<string, string | number>);
+    const model = resolveModel(c as Record<string, string | number>, knownModelNames);
     const key = `${user}|${model}`;
     const requests = Math.round(Number(c['value']) || 0);
     const existing = rowMap.get(key);
@@ -137,7 +107,7 @@ export async function getChargebackData(timeRange: string): Promise<ChargebackRe
 
   for (const l of limitedData) {
     const user = String(l['user'] || 'unknown');
-    const model = resolveModel(l as Record<string, string | number>);
+    const model = resolveModel(l as Record<string, string | number>, knownModelNames);
     const key = `${user}|${model}`;
     const rateLimited = Math.round(Number(l['value']) || 0);
     const existing = rowMap.get(key);

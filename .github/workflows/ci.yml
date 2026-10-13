@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  app:
+    name: Build and test the UI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      # Matches the node:20-alpine base in app/Dockerfile — CI should run what
+      # production runs. Bump both together.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - run: npm ci
+
+      # Type-checks the server including its tests, then runs them.
+      - run: npm test
+
+      - run: npm run build
+
+      # The cluster runs amd64. Building on an arm64 laptop without
+      # --platform produces an image whose pods never start, which has cost us
+      # a deploy cycle more than once — so prove the amd64 build works here.
+      - name: Set up QEMU for cross-architecture build
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build the amd64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: app
+          platforms: linux/amd64
+          push: false
+
+  chart:
+    name: Lint and render the Helm chart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+
+      - run: helm lint charts/maas-pulse --set trafficUI.enabled=true
+
+      # Rendering with the UI on catches template errors that `lint` alone misses,
+      # such as a bad value reference inside a conditional block.
+      - name: Render the chart
+        run: |
+          helm template ci charts/maas-pulse \
+            --set trafficUI.enabled=true \
+            --set oidc.enabled=true \
+            --set-string 'trafficUI.apiKeys=sk-test' \
+            > /dev/null

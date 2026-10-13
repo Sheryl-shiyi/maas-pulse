@@ -2,6 +2,7 @@ import fs from 'fs';
 import type { ModelInfo, ModelStatus } from './types.js';
 import { broadcast } from './ws.js';
 import { checkAndScale } from './autoscaler.js';
+import { stripMaasPrefix } from './model-names.js';
 
 const SA_TOKEN_PATH = '/var/run/secrets/kubernetes.io/serviceaccount/token';
 // Projected SA tokens are rotated by the kubelet, so re-read the file periodically.
@@ -81,7 +82,7 @@ async function pollModelMetrics(models: ModelInfo[]) {
   for (const model of models) {
     if (model.type === 'external') continue;
 
-    const baseName = model.name.replace(/^publishers\/llm\/models\//, '');
+    const baseName = stripMaasPrefix(model.name);
     const runningVal = running.find(r => String(r['model_name']) === baseName);
     const waitingVal = waiting.find(r => String(r['model_name']) === baseName);
     const kvVal = kvCache.find(r => String(r['model_name']) === baseName);

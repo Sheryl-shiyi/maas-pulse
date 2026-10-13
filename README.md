@@ -431,6 +431,26 @@ oc delete namespace llm
 
 > **Note**: Uninstalling the dependency-operators chart does not remove the operators themselves (OLM subscriptions persist). To fully remove operators, delete the subscriptions and CSVs manually.
 
+## Development
+
+```bash
+cd app
+npm ci
+npm test     # type-checks the server including its tests, then runs them
+npm run build
+```
+
+`npm test` covers the model-name normalization in `server/src/model-names.ts`. One model
+is spelled differently by every system that reports it — `publishers/llm/models/qwen3-8b-fp8`
+from the MaaS API, `qwen3-8b-fp8` from vLLM metrics, `llm/qwen3-8b-fp8-kserve-route` from
+Kuadrant, `gemini-3.1-flash-lite` vs `gemini-3-1-flash-lite` for external models,
+`gpt-4.1-nano-2025-04-14` from OpenAI — and anything that joins those sources has to fold
+them together first. The test fixtures are real label values read off the cluster.
+
+GitHub Actions runs the same commands on every push and pull request, plus a
+`--platform linux/amd64` image build (an arm64 image from an Apple Silicon laptop starts
+nowhere on the cluster) and a Helm lint and render.
+
 ## Repository structure
 
 ```
@@ -446,6 +466,8 @@ oc delete namespace llm
 │   └── server/                            #   Node.js BFF (Express + WebSocket + K8s Watch)
 │       └── src/
 │           ├── chargeback.ts              #   Prometheus → cost conversion logic
+│           ├── model-names.ts             #   Canonical model name across all sources
+│           ├── model-names.test.ts        #   Tests, fixtures taken from the cluster
 │           ├── oidc.ts                    #   OIDC login, token exchange, chat proxy
 │           ├── prometheus.ts              #   PromQL query helper
 │           └── index.ts                   #   Express app + WebSocket + API routes

@@ -11,5 +11,7 @@
     "resolveJsonModule": true,
     "declaration": true
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  // Tests run through tsx, not tsc, and must not land in dist or the image.
+  "exclude": ["src/**/*.test.ts"]
 }
