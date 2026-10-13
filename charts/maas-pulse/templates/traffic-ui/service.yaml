@@ -4,9 +4,8 @@ kind: Service
 metadata:
   name: maas-pulse-ui
   labels:
-    app.kubernetes.io/name: maas-pulse-ui
     app.kubernetes.io/component: traffic-ui
-    {{- include "maas-pulse.labels" . | nindent 4 }}
+    {{- include "maas-pulse.uiLabels" . | nindent 4 }}
 spec:
   selector:
     app.kubernetes.io/name: maas-pulse-ui

@@ -49,3 +49,24 @@ Selector labels
 app.kubernetes.io/name: {{ include "maas-pulse.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+Common labels for the traffic UI resources.
+
+Same as maas-pulse.labels except that app.kubernetes.io/name stays maas-pulse-ui.
+The UI templates used to write that label themselves and then include
+maas-pulse.labels, which emits the key a second time as maas-pulse; a duplicate
+YAML key silently keeps the last value, so the resources ended up labelled
+maas-pulse and `oc get -l app.kubernetes.io/name=maas-pulse-ui` did not find them.
+Do not use this for a selector — the pod template and the Deployment/Service
+selectors set the name label directly, and selectors are immutable.
+*/}}
+{{- define "maas-pulse.uiLabels" -}}
+helm.sh/chart: {{ include "maas-pulse.chart" . }}
+app.kubernetes.io/name: maas-pulse-ui
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
