@@ -21,7 +21,7 @@ export function LiveFeed({ entries }: LiveFeedProps) {
               {entry.rateLimited ? (
                 <span style={styles.blocked}>429</span>
               ) : entry.error ? (
-                <span style={styles.errorBadge}>ERR</span>
+                <span style={styles.errorBadge}>{entry.status ?? 'ERR'}</span>
               ) : (
                 <span style={styles.latency}>{entry.latencyMs}ms</span>
               )}
@@ -32,6 +32,13 @@ export function LiveFeed({ entries }: LiveFeedProps) {
             )}
             {entry.rateLimited && (
               <div style={styles.rateLimitMsg}>Rate limited</div>
+            )}
+            {entry.error && (
+              <div style={styles.rateLimitMsg}>
+                {entry.status === 403 || entry.status === 401
+                  ? 'Rejected by the gateway — the API key is not valid'
+                  : entry.error}
+              </div>
             )}
           </div>
         ))}

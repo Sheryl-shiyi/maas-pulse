@@ -125,7 +125,9 @@ export default function App() {
         }, ...prev].slice(0, MAX_FEED));
         break;
 
-      case 'rate_limited':
+      case 'rate_limited': {
+        // Same ordering trap as request_error: capture before the removal below.
+        const limitedQuestion = activeRequestsRef.current.find(r => r.requestId === event.requestId)?.question || '';
         setStats(s => ({ ...s, rateLimitedRequests: s.rateLimitedRequests + 1 }));
         setUsers(prev => {
           const next = prev.map(u =>
@@ -147,7 +149,7 @@ export default function App() {
           id: event.requestId,
           user: event.user,
           model: event.model,
-          question: activeRequestsRef.current.find(r => r.requestId === event.requestId)?.question || '',
+          question: limitedQuestion,
           answer: '',
           latencyMs: 0,
           tokensUsed: 0,
@@ -155,6 +157,7 @@ export default function App() {
           rateLimited: true,
         }, ...prev].slice(0, MAX_FEED));
         break;
+      }
 
       case 'rate_limit_reset': {
         setUsers(prev => {
@@ -179,7 +182,11 @@ export default function App() {
         });
         break;
 
-      case 'request_error':
+      case 'request_error': {
+        // Read the question before dropping the request: unlike the success path,
+        // which defers removal, this removes synchronously, so looking it up
+        // afterwards always missed and the feed showed an empty "Q:".
+        const question = activeRequestsRef.current.find(r => r.requestId === event.requestId)?.question || '';
         setStats(s => ({ ...s, errorRequests: s.errorRequests + 1 }));
         setUsers(prev => prev.map(u =>
           u.name === event.user ? { ...u, activeRequests: Math.max(0, u.activeRequests - 1) } : u
@@ -193,14 +200,16 @@ export default function App() {
           id: event.requestId,
           user: event.user,
           model: event.model,
-          question: activeRequestsRef.current.find(r => r.requestId === event.requestId)?.question || '',
+          question,
           answer: '',
           latencyMs: 0,
           tokensUsed: 0,
           timestamp: Date.now(),
           error: event.error,
+          status: event.status,
         }, ...prev].slice(0, MAX_FEED));
         break;
+      }
 
       case 'model_status':
         setModels(prev => prev.map(m =>

@@ -32,6 +32,9 @@ export interface InferenceResult {
   rateLimited: boolean;
   retryAfterMs?: number;
   error?: string;
+  /** HTTP status when the gateway rejected the call, so the UI can tell a revoked
+   *  key (403) apart from a server fault (5xx) instead of showing a bare "ERR". */
+  status?: number;
   rateLimitInfo?: RateLimitInfo;
 }
 
@@ -90,7 +93,8 @@ export async function sendInference(user: string, model: string, question: strin
     }
 
     const message = err instanceof Error ? err.message : 'Unknown error';
+    const status = err instanceof OpenAI.APIError ? err.status : undefined;
     console.error(`[maas] ${user} → ${model}: ${message}`);
-    return { answer: '', tokensUsed: 0, latencyMs, rateLimited: false, error: message };
+    return { answer: '', tokensUsed: 0, latencyMs, rateLimited: false, error: message, status };
   }
 }

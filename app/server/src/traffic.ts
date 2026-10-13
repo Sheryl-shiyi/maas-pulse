@@ -133,7 +133,7 @@ async function fireRequest(user: string, model: string, signal: AbortSignal) {
       broadcast({ type: 'rate_limited', requestId, user, model });
       console.log(`[traffic] ${user} rate-limited on ${model}, pausing for ${Math.round(cooldownMs / 1000)}s`);
     } else if (result.error) {
-      broadcast({ type: 'request_error', requestId, user, model, error: result.error });
+      broadcast({ type: 'request_error', requestId, user, model, error: result.error, status: result.status });
     } else {
       broadcast({
         type: 'request_complete',

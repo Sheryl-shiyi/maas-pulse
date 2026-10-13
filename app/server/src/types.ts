@@ -21,7 +21,7 @@ export type ServerEvent =
   | { type: 'request_start'; requestId: string; user: string; model: string; question: string }
   | { type: 'request_complete'; requestId: string; user: string; model: string; latencyMs: number; tokensUsed: number; answer: string }
   | { type: 'rate_limited'; requestId: string; user: string; model: string }
-  | { type: 'request_error'; requestId: string; user: string; model: string; error: string }
+  | { type: 'request_error'; requestId: string; user: string; model: string; error: string; status?: number }
   | { type: 'model_status'; model: string; queueDepth: number; latencyP95Ms: number; kvCachePercent: number; status: ModelStatus }
   | { type: 'rate_limit_reset'; user: string; model: string }
   | { type: 'rate_limit_update'; user: string; rateLimits: Record<string, string> }
