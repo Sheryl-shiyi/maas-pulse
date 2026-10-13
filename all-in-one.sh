@@ -58,6 +58,12 @@ function noisy {
   "${@}"
 }
 
+# Release name for the main chart. Clusters installed before the project was renamed
+# run it as `maas-code-assistant`; point RELEASE_NAME at the existing release to upgrade
+# one of those in place, instead of creating a second release that fights over the same
+# resources. Check with: helm list -A
+RELEASE_NAME="${RELEASE_NAME:-maas-pulse}"
+
 INGRESS_DOMAIN=$(oc get ingresscontroller -n openshift-ingress-operator default -ojsonpath='{.status.domain}' 2>/dev/null)
 if [ -z "$INGRESS_DOMAIN" ]; then
   echo "Unable to retrieve ingress configuration from your cluster." >&2
@@ -157,21 +163,49 @@ fi
 
 # Build traffic UI args
 TRAFFIC_UI_ARGS=()
+ESCAPED_API_KEYS=""
 if [ -n "$TRAFFIC_UI_IMAGE" ]; then
   echo "Deploying traffic UI with image: $TRAFFIC_UI_IMAGE"
   TRAFFIC_UI_ARGS+=(--set trafficUI.enabled=true)
   TRAFFIC_UI_ARGS+=(--set "trafficUI.image=$TRAFFIC_UI_IMAGE")
   TRAFFIC_UI_ARGS+=(--set "trafficUI.maasGatewayUrl=https://maas.${INGRESS_DOMAIN}")
-  if [ -n "$TRAFFIC_UI_API_KEYS_SECRET" ]; then
+
+  # MaaS API keys for the UI's users, in the same order as trafficUI.userNames.
+  # Taken from USER_API_KEYS in .env, else read out of user_keys.json. Both are
+  # gitignored; keys are never committed.
+  TRAFFIC_UI_USERS="${TRAFFIC_UI_USERS:-admin,user1,user2,user3,user4,user5}"
+  if [ -z "$USER_API_KEYS" ] && [ -r user_keys.json ]; then
+    for user in ${TRAFFIC_UI_USERS//,/ }; do
+      key=$(sed -n 's/.*"'"$user"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' user_keys.json | head -1)
+      USER_API_KEYS="${USER_API_KEYS:+$USER_API_KEYS,}$key"
+    done
+  fi
+  if [ -n "${USER_API_KEYS//,/}" ]; then
+    echo "Injecting MaaS API keys for: $TRAFFIC_UI_USERS"
+    ESCAPED_API_KEYS="${USER_API_KEYS//,/\\,}"
+    TRAFFIC_UI_ARGS+=(--set-string "trafficUI.apiKeys=$ESCAPED_API_KEYS")
+  elif [ -n "$TRAFFIC_UI_API_KEYS_SECRET" ]; then
     TRAFFIC_UI_ARGS+=(--set "trafficUI.apiKeysSecret=$TRAFFIC_UI_API_KEYS_SECRET")
+  else
+    echo "No MaaS API keys found. Create them in Gen AI Studio, then put them in" >&2
+    echo "user_keys.json or USER_API_KEYS in .env and re-run. Traffic generation" >&2
+    echo "will not work until then." >&2
   fi
 else
   echo "Skipping traffic UI (no TRAFFIC_UI_IMAGE set). Build with: cd app && podman build -t <image> ."
 fi
 
+# Only censor non-empty values — an empty pattern matches at position 0.
+CENSOR_ARGS=()
+for secret in "$ADMIN_PASSWORD" "$USER_PASSWORD" "$GEMINI_API_KEY" "$ESCAPED_API_KEYS"; do
+  if [ -n "$secret" ]; then
+    CENSOR_ARGS+=(-c "$secret")
+  fi
+done
+
 # Install the chart
-noisy -c "$ADMIN_PASSWORD" -c "$USER_PASSWORD" -c "$GEMINI_API_KEY" helm upgrade --install -n default --timeout 20m0s \
-  maas-pulse charts/maas-pulse \
+noisy "${CENSOR_ARGS[@]}" helm upgrade --install -n default --timeout 20m0s \
+  "$RELEASE_NAME" charts/maas-pulse \
   -f charts/maas-pulse/all-dependencies.yaml \
   -f environment.yaml \
   --set keycloak.realm.admin.password="$ADMIN_PASSWORD" \

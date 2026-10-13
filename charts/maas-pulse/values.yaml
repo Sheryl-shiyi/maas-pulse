@@ -178,6 +178,9 @@ trafficUI:
   image: quay.io/rh-ee-sherwang/maas-pulse:latest
   replicas: 1
   maasGatewayUrl: ""
+  # Defaults to the in-cluster Thanos querier. Queries are authenticated with the
+  # maas-pulse-ui service account token mounted in the pod (bound to
+  # cluster-monitoring-view) — no separate token secret is needed.
   prometheusUrl: ""
   modelNames: "publishers/llm/models/nemotron-3-nano-30b-a3b,publishers/llm/models/qwen3-8b-fp8,gemini-3.1-flash-lite,gpt-4.1-nano"
   modelDisplayNames: "Nemotron 30B,Qwen3 8B,Gemini Flash,GPT-4.1 Nano"
@@ -187,6 +190,13 @@ trafficUI:
   userRateLimits: "100k/min,5k/min,5k/min,5k/min,5k/min,5k/min"
   userGroups: "admin,user,user,user,user,user"
   subscriptionNamespace: "models-as-a-service"
+  # MaaS API keys, comma-separated, in the same order as userNames. When set, the
+  # chart creates the `maas-pulse-ui-apikeys` Secret itself — delete any manually
+  # created Secret of that name first, or Helm will refuse to adopt it.
+  # all-in-one.sh fills this in from user_keys.json (gitignored); never commit keys.
+  apiKeys: ""
+  # Alternative to apiKeys: reference a Secret you manage outside the chart,
+  # with the keys in its `api-keys` field.
   apiKeysSecret: ""
   oidcModelServed: "qwen3-8b-fp8"
   oidcModelPath: "qwen3-8b-fp8"

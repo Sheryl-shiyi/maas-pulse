@@ -1,15 +1,38 @@
+import fs from 'fs';
 import type { ModelInfo, ModelStatus } from './types.js';
 import { broadcast } from './ws.js';
 import { checkAndScale } from './autoscaler.js';
 
+const SA_TOKEN_PATH = '/var/run/secrets/kubernetes.io/serviceaccount/token';
+// Projected SA tokens are rotated by the kubelet, so re-read the file periodically.
+const SA_TOKEN_TTL_MS = 60_000;
+
 let prometheusUrl = '';
-let bearerToken = '';
+let staticToken = '';
+let cachedToken = '';
+let cachedAt = 0;
 let pollInterval: ReturnType<typeof setInterval> | null = null;
 
 export function initPrometheus(url: string, token: string) {
   prometheusUrl = url;
-  bearerToken = token;
-  console.log(`[prometheus] configured: ${url}`);
+  staticToken = token;
+  const source = token ? 'PROMETHEUS_TOKEN env'
+    : fs.existsSync(SA_TOKEN_PATH) ? 'in-cluster service account'
+    : 'none (unauthenticated)';
+  console.log(`[prometheus] configured: ${url} — auth: ${source}`);
+}
+
+function bearerToken(): string {
+  if (staticToken) return staticToken;
+  if (cachedAt && Date.now() - cachedAt < SA_TOKEN_TTL_MS) return cachedToken;
+
+  try {
+    cachedToken = fs.readFileSync(SA_TOKEN_PATH, 'utf8').trim();
+  } catch {
+    cachedToken = '';
+  }
+  cachedAt = Date.now();
+  return cachedToken;
 }
 
 export async function query(promql: string): Promise<Record<string, string | number>[]> {
@@ -18,8 +41,9 @@ export async function query(promql: string): Promise<Record<string, string | num
   try {
     const url = `${prometheusUrl}/api/v1/query?query=${encodeURIComponent(promql)}`;
     const headers: Record<string, string> = { 'Accept': 'application/json' };
-    if (bearerToken) {
-      headers['Authorization'] = `Bearer ${bearerToken}`;
+    const token = bearerToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
 
     const res = await fetch(url, {

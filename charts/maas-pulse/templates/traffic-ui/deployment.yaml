@@ -17,6 +17,11 @@ spec:
       labels:
         app.kubernetes.io/name: maas-pulse-ui
         app.kubernetes.io/component: traffic-ui
+      {{- if .Values.trafficUI.apiKeys }}
+      annotations:
+        # Roll the pods when the API keys change, so new keys take effect on upgrade.
+        checksum/api-keys: {{ .Values.trafficUI.apiKeys | sha256sum }}
+      {{- end }}
     spec:
       serviceAccountName: maas-pulse-ui
       containers:
@@ -52,19 +57,17 @@ spec:
               value: {{ .Values.trafficUI.subscriptionNamespace | default "models-as-a-service" | quote }}
             - name: MODELS_NAMESPACE
               value: {{ .Values.modelsNamespace | default "llm" | quote }}
-            {{- if .Values.trafficUI.apiKeysSecret }}
+            {{- $apiKeysSecret := .Values.trafficUI.apiKeysSecret }}
+            {{- if .Values.trafficUI.apiKeys }}
+            {{- $apiKeysSecret = "maas-pulse-ui-apikeys" }}
+            {{- end }}
+            {{- if $apiKeysSecret }}
             - name: USER_API_KEYS
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.trafficUI.apiKeysSecret }}
+                  name: {{ $apiKeysSecret }}
                   key: api-keys
             {{- end }}
-            - name: PROMETHEUS_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: maas-pulse-ui-token
-                  key: token
-                  optional: true
             {{- if .Values.autoscaling.enabled }}
             {{- $scaleNames := list }}
             {{- range .Values.autoscaling.models }}

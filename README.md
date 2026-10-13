@@ -347,6 +347,7 @@ The script will:
 3. Prompt for an optional Google Gemini API key (if provided, deploys the external model; if skipped, only internal models are deployed)
 4. Install all dependency operators and wait for RHOAI to be ready
 5. Deploy the maas-pulse chart with Keycloak, monitoring, and models
+6. Wire the traffic UI's per-user MaaS API keys, if it finds them in `user_keys.json` or in `USER_API_KEYS` in `.env` (both gitignored)
 
 **Option B: Step-by-step with Helm**
 
@@ -372,6 +373,19 @@ To include external models with real API keys:
   --set externalModels[0].apiKey="YOUR_GEMINI_API_KEY" \
   --set externalModels[1].apiKey="YOUR_OPENAI_API_KEY"
 ```
+
+To deploy the traffic UI with per-user MaaS API keys (issued from Gen AI Studio), pass
+them in the same order as `trafficUI.userNames`, escaping the separating commas:
+```bash
+  --set trafficUI.enabled=true \
+  --set-string trafficUI.apiKeys="sk-oai-admin\,sk-oai-user1\,sk-oai-user2"
+```
+The chart creates the `maas-pulse-ui-apikeys` Secret from this value, so no secret has to
+be created by hand. If you would rather manage that Secret yourself, leave
+`trafficUI.apiKeys` empty and point `trafficUI.apiKeysSecret` at it instead.
+
+Prometheus access needs no secret at all: the UI queries Thanos with the service account
+token mounted in its own pod, which the chart binds to `cluster-monitoring-view`.
 
 ### Validating the deployment
 
