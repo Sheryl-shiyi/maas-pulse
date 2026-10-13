@@ -30,7 +30,45 @@ spec:
         - name: maas-default-gateway
           namespace: openshift-ingress
     route: {}
+    {{- if $.Values.epp.enabled }}
+    {{- $w := $.Values.epp.weights }}
+    scheduler:
+      template:
+        containers:
+          # Only args is overridden. The pool name, ports and TLS flags live in
+          # the preset's command, which is left alone; args carries just
+          # --config-text, so replacing it cannot drop startup flags.
+          - name: main
+            args:
+              - --config-text
+              - |
+                apiVersion: llm-d.ai/v1alpha1
+                kind: EndpointPickerConfig
+                plugins:
+                - type: single-profile-handler
+                - type: queue-scorer
+                - type: kv-cache-utilization-scorer
+                - type: prefix-cache-scorer
+                - type: no-hit-lru-scorer
+                - type: max-score-picker
+                - parameters:
+                    scheme: https
+                  type: metrics-data-source
+                schedulingProfiles:
+                - name: default
+                  plugins:
+                  - pluginRef: queue-scorer
+                    weight: {{ $w.queueScorer }}
+                  - pluginRef: kv-cache-utilization-scorer
+                    weight: {{ $w.kvCacheUtilizationScorer }}
+                  - pluginRef: prefix-cache-scorer
+                    weight: {{ $w.prefixCacheScorer }}
+                  - pluginRef: no-hit-lru-scorer
+                    weight: {{ $w.noHitLruScorer }}
+                  - pluginRef: max-score-picker
+    {{- else }}
     scheduler: {}
+    {{- end }}
   template:
     containers:
       - name: main

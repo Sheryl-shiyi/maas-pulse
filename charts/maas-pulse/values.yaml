@@ -48,6 +48,33 @@ subscriptions:
 
 modelsNamespace: llm
 defaultServingImage: registry.redhat.io/rhaii/vllm-cuda-rhel9:3.4.0
+
+# llm-d Endpoint Picker (EPP) scheduling profile.
+#
+# Why this is set explicitly rather than left to the cluster's preset: KServe does
+# not recreate a healthy EPP, so a cluster upgraded from RHOAI 3.4 keeps the 3.4
+# default profile — queue-scorer 2 and prefix-cache-scorer 3, nothing else. Under
+# that profile a freshly scaled-up replica has an empty prefix cache and loses
+# every scoring round, which is the replica starvation that RHOAI 3.5 added
+# no-hit-lru-scorer to fix. Rendering the profile here makes it independent of
+# whichever preset the cluster happens to carry.
+#
+# Deliberately NOT done: switching to the v3-5-0-* presets. Those introduce 12
+# named HTTPRoute rules, and with more than one model on the same gateway Istio
+# treats the identical names as duplicates and collapses all traffic onto a
+# single EPP (RHOAIENG-93709, no workaround, upstream istio#61601). Overriding
+# only the scheduler args leaves route generation untouched.
+#
+# Weights are relative, not normalised. Raising prefixCacheScorer favours cache
+# reuse over even load; raising noHitLruScorer favours spreading onto cold
+# replicas. The defaults below are the RHOAI 3.5 defaults.
+epp:
+  enabled: true
+  weights:
+    queueScorer: 2
+    kvCacheUtilizationScorer: 2
+    prefixCacheScorer: 3
+    noHitLruScorer: 2
 models:
   - name: nemotron-3-nano-30b-a3b
     displayName: NVIDIA Nemotron 3 Nano 30B A3B FP8
