@@ -1,0 +1,102 @@
+# Prototype: authenticate a demo user with a ServiceAccount token instead of an API key.
+#
+# Why: three of our six demo API keys silently stopped working and we could not determine
+# why — they live in Postgres with no auditable record. ServiceAccount tokens cannot
+# expire out from under us (the kubelet rotates them) and need no manual minting, which
+# suits a project whose point is one-command deploy.
+#
+# This is viable because every AuthConfig on the gateway already enables the
+# `openshift-identities` method backed by `kubernetesTokenReview` (verified 2026-10-15),
+# so a SA token is accepted directly — no API key involved.
+#
+# Scope: ONE user (user1), on purpose. The other five keep their API keys, so the demo
+# keeps working while we check the one thing we cannot check from a terminal — whether
+# the RHOAI Dashboard can still edit the token limit of a SA-owned subscription.
+#
+# Namespace choice: these live in models-as-a-service, alongside the subscription and
+# policy that name them. Deliberately NOT the `maas-pulse` namespace — the chart is about
+# to create that one, and a hand-created namespace would make Helm fail with "invalid
+# ownership metadata", the same trap the out-of-band OIDC resources are already in.
+#
+# Apply:
+#   oc apply -f docs/reference/sa-identity-prototype.yaml
+#
+# Test (no API key anywhere in this flow):
+#   TOKEN=$(oc create token demo-user1 -n models-as-a-service --duration=1h)
+#   curl -sk https://maas.<domain>/v1/chat/completions \
+#     -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+#     -d '{"model":"publishers/llm/models/qwen3-8b-fp8",
+#          "messages":[{"role":"user","content":"hi"}],"max_tokens":5}'
+#
+# Then, in the RHOAI Dashboard, try to change this subscription's token limit. That is
+# the question this prototype exists to answer.
+#
+# Roll back:
+#   oc delete -f docs/reference/sa-identity-prototype.yaml
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: demo-user1
+  namespace: models-as-a-service
+  annotations:
+    openshift.io/description: >-
+      Machine identity for the maas-pulse traffic generator, standing in for the demo
+      user "user1". Its Kubernetes username is
+      system:serviceaccount:models-as-a-service:demo-user1.
+  labels:
+    app.kubernetes.io/part-of: maas-pulse
+    maas-pulse.io/demo-identity: "true"
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSAuthPolicy
+metadata:
+  name: demo-user1-policy
+  namespace: models-as-a-service
+  annotations:
+    openshift.io/description: Grants the demo-user1 ServiceAccount access to the models
+  labels:
+    app.kubernetes.io/part-of: maas-pulse
+    maas-pulse.io/demo-identity: "true"
+spec:
+  modelRefs:
+    - name: nemotron-3-nano-30b-a3b
+      namespace: llm
+    - name: qwen3-8b-fp8
+      namespace: llm
+  subjects:
+    users:
+      - system:serviceaccount:models-as-a-service:demo-user1
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSSubscription
+metadata:
+  name: demo-user1
+  namespace: models-as-a-service
+  annotations:
+    openshift.io/description: >-
+      Token budget for the demo-user1 ServiceAccount. Mirrors the limits of the shared
+      "user" subscription so a comparison against the API-key users is like for like.
+  labels:
+    app.kubernetes.io/part-of: maas-pulse
+    maas-pulse.io/demo-identity: "true"
+spec:
+  # Higher than the group-level "user" subscription (priority 0) so that if this
+  # identity ever also matches a group tier, this one wins outright. Entitlement is
+  # selected, not accumulated: the highest priority takes effect in full.
+  priority: 50
+  owner:
+    groups: []
+    users:
+      - system:serviceaccount:models-as-a-service:demo-user1
+  modelRefs:
+    - name: nemotron-3-nano-30b-a3b
+      namespace: llm
+      tokenRateLimits:
+        - limit: 6000
+          window: 1m
+    - name: qwen3-8b-fp8
+      namespace: llm
+      tokenRateLimits:
+        - limit: 5000
+          window: 1m

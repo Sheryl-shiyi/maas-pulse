@@ -8,6 +8,8 @@ export interface UserInfo {
   name: string;
   displayName: string;
   rateLimit: string;
+  /** Subscription tier, used to band users together in the topology. */
+  tier?: string;
 }
 
 export type ModelStatus = 'healthy' | 'busy' | 'overloaded';
@@ -70,6 +72,7 @@ export interface UserState {
   name: string;
   displayName: string;
   rateLimit: string;
+  tier?: string;
   rateLimits: Record<string, string>;
   rateLimitedModels: Record<string, boolean>;
   activeRequests: number;

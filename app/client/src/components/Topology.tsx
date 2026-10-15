@@ -23,18 +23,39 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
     const modelX = w * 0.84;
     const gatewayY = h * 0.5;
 
-    const userPositions = users.map((_, i) => ({
-      x: userX,
-      y: (h * (i + 1)) / (users.length + 1),
-    }));
+    // Users are laid out in tier bands rather than one even column, so that a limit
+    // change made against a subscription visibly moves a whole cohort at once. Users
+    // with no tier (the admin) form their own band at the top.
+    const tierOrder: string[] = [];
+    for (const u of users) {
+      const key = u.tier || '';
+      if (!tierOrder.includes(key)) tierOrder.push(key);
+    }
+    const GAP = 18;
+    const usable = h - GAP * (tierOrder.length - 1);
+    const userPositions: { x: number; y: number }[] = new Array(users.length);
+    const tierBands: { tier: string; top: number; bottom: number }[] = [];
+
+    let cursor = 0;
+    for (const tier of tierOrder) {
+      const members = users
+        .map((u, i) => ({ u, i }))
+        .filter(({ u }) => (u.tier || '') === tier);
+      const bandHeight = (usable * members.length) / users.length;
+      members.forEach(({ i }, n) => {
+        userPositions[i] = { x: userX, y: cursor + (bandHeight * (n + 1)) / (members.length + 1) };
+      });
+      if (tier) tierBands.push({ tier, top: cursor, bottom: cursor + bandHeight });
+      cursor += bandHeight + GAP;
+    }
 
     const modelPositions = models.map((_, i) => ({
       x: modelX,
       y: (h * (i + 1)) / (models.length + 1),
     }));
 
-    return { userX, gatewayX, gatewayY, modelX, userPositions, modelPositions };
-  }, [users.length, models.length]);
+    return { userX, gatewayX, gatewayY, modelX, userPositions, modelPositions, tierBands };
+  }, [users, models.length]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -62,6 +83,27 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
       const layout = getLayout(w, h);
 
       ctx.clearRect(0, 0, w, h);
+
+      // Tier bands sit behind everything, so a cohort reads as one unit.
+      for (const band of layout.tierBands) {
+        const x = layout.userX - 62;
+        const bw = 124;
+        const bh = band.bottom - band.top;
+        ctx.save();
+        ctx.fillStyle = 'rgba(148, 163, 184, 0.06)';
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.22)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(x, band.top + 4, bw, Math.max(bh - 8, 12), 10);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = 'bold 10px system-ui, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText(band.tier.toUpperCase(), x + 8, band.top + 9);
+        ctx.restore();
+      }
 
       // Compute model box positions (one box per replica)
       const modelRectW = 150;

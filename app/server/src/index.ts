@@ -11,9 +11,22 @@ import { startSubscriptionWatcher, getWatchedRateLimits } from './subscription-w
 import { startDeploymentWatcher, getWatchedReplicas } from './deployment-watcher.js';
 import { initAutoscaler } from './autoscaler.js';
 import { initOidc, createOidcRouter } from './oidc.js';
+import { identityGroup } from './sa-token.js';
 import type { AppConfig, ClientEvent } from './types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Ceiling for generated traffic.
+ *
+ * Lowered from 10 after measuring what happens above it. ServiceAccount identities are
+ * validated by a TokenReview call per request, and past roughly 3/s a growing share of
+ * those come back rejected: 0% failures at 2/s, ~30% at 4/s, ~52% at 8/s, while the one
+ * API-key identity never failed at any rate. A wall of 401s reads as a broken system and
+ * drowns out the rate limiting the demo is actually about, which is visible within ~16s
+ * at 3/s anyway.
+ */
+const MAX_RATE_PER_SECOND = 4;
 
 function loadConfig(): AppConfig {
   const maasGatewayUrl = process.env['MAAS_GATEWAY_URL'] || 'https://maas.apps.cluster.example.com';
@@ -25,13 +38,24 @@ function loadConfig(): AppConfig {
   const userDisplayNames = (process.env['USER_DISPLAY_NAMES'] || '').split(',');
   const userRateLimits = (process.env['USER_RATE_LIMITS'] || '').split(',');
   const userGroups = (process.env['USER_GROUPS'] || '').split(',');
-  const users = userNames.map((name, i) => ({
-    name: name.trim(),
-    displayName: userDisplayNames[i]?.trim() || name.trim(),
-    apiKey: userKeys[i]?.trim() || '',
-    rateLimit: userRateLimits[i]?.trim() || '',
-    group: userGroups[i]?.trim() || '',
-  }));
+  // `namespace/name` per user, aligned with USER_NAMES. A user with an entry here
+  // authenticates with a minted ServiceAccount token and needs no API key.
+  const userServiceAccounts = (process.env['USER_SERVICE_ACCOUNTS'] || '').split(',');
+  const userTiers = (process.env['USER_TIERS'] || '').split(',');
+  const users = userNames.map((name, i) => {
+    const serviceAccount = userServiceAccounts[i]?.trim() || undefined;
+    return {
+      name: name.trim(),
+      displayName: userDisplayNames[i]?.trim() || name.trim(),
+      apiKey: userKeys[i]?.trim() || '',
+      serviceAccount,
+      rateLimit: userRateLimits[i]?.trim() || '',
+      // For a ServiceAccount the group is implied by its namespace, so derive it rather
+      // than trusting two config lists to agree.
+      group: (serviceAccount && identityGroup(serviceAccount)) || userGroups[i]?.trim() || '',
+      tier: userTiers[i]?.trim() || undefined,
+    };
+  });
 
   const modelNames = (process.env['MODEL_NAMES'] || '').split(',').filter(Boolean);
   const modelDisplayNames = (process.env['MODEL_DISPLAY_NAMES'] || '').split(',');
@@ -48,8 +72,10 @@ function loadConfig(): AppConfig {
 
   initChargeback(models);
 
-  if (users.some(u => u.apiKey)) {
-    initMaasClients(maasGatewayUrl, users.filter(u => u.apiKey));
+  // A user is usable if it has either an API key or a ServiceAccount to mint from.
+  const usable = users.filter(u => u.apiKey || u.serviceAccount);
+  if (usable.length > 0) {
+    initMaasClients(maasGatewayUrl, usable);
   }
 
   return { maasGatewayUrl, prometheusUrl, models, users };
@@ -64,7 +90,7 @@ app.use(express.json());
 app.get('/api/config', (_req, res) => {
   res.json({
     models: config.models,
-    users: config.users.map(u => ({ name: u.name, displayName: u.displayName, rateLimit: u.rateLimit })),
+    users: config.users.map(u => ({ name: u.name, displayName: u.displayName, rateLimit: u.rateLimit, tier: u.tier })),
     trafficRunning: isRunning(),
   });
 });
@@ -78,9 +104,9 @@ app.post('/api/traffic/start', (req, res) => {
   const { pattern = 'concurrent', usersEnabled, modelsEnabled, ratePerSecond = 1 } = req.body;
   startTraffic({
     pattern,
-    usersEnabled: usersEnabled || config.users.filter(u => u.apiKey).map(u => u.name),
+    usersEnabled: usersEnabled || config.users.filter(u => u.apiKey || u.serviceAccount).map(u => u.name),
     modelsEnabled: modelsEnabled || config.models.map(m => m.name),
-    ratePerSecond: Math.min(Math.max(ratePerSecond, 0.1), 10),
+    ratePerSecond: Math.min(Math.max(ratePerSecond, 0.1), MAX_RATE_PER_SECOND),
   });
 
   res.json({ status: 'started' });
@@ -127,7 +153,7 @@ setClientConnectHandler((ws) => {
   sendTo(ws, {
     type: 'config',
     models: config.models,
-    users: config.users.map(u => ({ name: u.name, displayName: u.displayName, rateLimit: u.rateLimit })),
+    users: config.users.map(u => ({ name: u.name, displayName: u.displayName, rateLimit: u.rateLimit, tier: u.tier })),
     trafficRunning: isRunning(),
   });
   const watched = getWatchedRateLimits();
@@ -148,7 +174,7 @@ setClientMessageHandler((event: ClientEvent) => {
           pattern: event.pattern,
           usersEnabled: event.usersEnabled,
           modelsEnabled: event.modelsEnabled,
-          ratePerSecond: Math.min(Math.max(event.ratePerSecond, 0.1), 10),
+          ratePerSecond: Math.min(Math.max(event.ratePerSecond, 0.1), MAX_RATE_PER_SECOND),
         });
       }
       break;
@@ -195,5 +221,7 @@ const port = parseInt(process.env['PORT'] || '3001');
 server.listen(port, () => {
   console.log(`[server] listening on http://localhost:${port}`);
   console.log(`[server] models: ${config.models.map(m => m.name).join(', ') || '(none configured)'}`);
-  console.log(`[server] users with keys: ${config.users.filter(u => u.apiKey).length}/${config.users.length}`);
+  const byKey = config.users.filter(u => u.apiKey && !u.serviceAccount).length;
+  const bySa = config.users.filter(u => u.serviceAccount).length;
+  console.log(`[server] usable identities: ${byKey + bySa}/${config.users.length} (${bySa} ServiceAccount, ${byKey} API key)`);
 });

@@ -7,9 +7,14 @@ export interface ModelInfo {
 export interface UserInfo {
   name: string;
   displayName: string;
+  /** Empty when the user authenticates with a ServiceAccount token instead. */
   apiKey: string;
+  /** `namespace/name` of the ServiceAccount backing this user, if any. */
+  serviceAccount?: string;
   rateLimit: string;
   group: string;
+  /** Subscription tier, used to group users in the UI. */
+  tier?: string;
 }
 
 export type ModelStatus = 'healthy' | 'busy' | 'overloaded';

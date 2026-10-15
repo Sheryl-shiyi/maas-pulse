@@ -11,7 +11,7 @@ interface ControlsProps {
 
 export function Controls({ models, users, trafficRunning, connected, send }: ControlsProps) {
   const [pattern, setPattern] = useState<TrafficPattern>('concurrent');
-  const [rate, setRate] = useState(1);
+  const [rate, setRate] = useState(3);
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
 
@@ -75,7 +75,7 @@ export function Controls({ models, users, trafficRunning, connected, send }: Con
           <input
             type="range"
             min={0.2}
-            max={10}
+            max={4}
             step={0.2}
             value={rate}
             onChange={e => setRate(parseFloat(e.target.value))}
