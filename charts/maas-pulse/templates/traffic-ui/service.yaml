@@ -3,6 +3,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: maas-pulse-ui
+  namespace: {{ include "maas-pulse.uiNamespace" . }}
   labels:
     app.kubernetes.io/component: traffic-ui
     {{- include "maas-pulse.uiLabels" . | nindent 4 }}

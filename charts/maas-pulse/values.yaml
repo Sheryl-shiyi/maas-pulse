@@ -11,6 +11,67 @@ users:
   - user5
 
 subscriptions:
+  # Tiers named after consumer plans an audience already understands, so that raising
+  # or lowering one in the dashboard needs no explanation. Each tier owns a namespace;
+  # the ServiceAccounts inside it are the tier's members, and the built-in group
+  # `system:serviceaccounts:<namespace>` is what the subscription owns.
+  #
+  # The ladder is deliberately steep: Free has to hit its ceiling within seconds of the
+  # traffic starting, or the audience never sees throttling happen.
+  free:
+    displayName: Free tier
+    priority: 10
+    serviceAccountNamespace: maas-tier-free
+    serviceAccounts: [user1, user2, user3]
+    tokenRateLimits:
+      nemotron-3-nano-30b-a3b:
+        - limit: 1000
+          window: 1m
+      qwen3-8b-fp8:
+        - limit: 1000
+          window: 1m
+      "gemini-3.1-flash-lite":
+        - limit: 1000
+          window: 1m
+      "gpt-4.1-nano":
+        - limit: 1000
+          window: 1m
+  pro:
+    displayName: Pro tier
+    priority: 20
+    serviceAccountNamespace: maas-tier-pro
+    serviceAccounts: [user4, user5, user6]
+    tokenRateLimits:
+      nemotron-3-nano-30b-a3b:
+        - limit: 10000
+          window: 1m
+      qwen3-8b-fp8:
+        - limit: 10000
+          window: 1m
+      "gemini-3.1-flash-lite":
+        - limit: 10000
+          window: 1m
+      "gpt-4.1-nano":
+        - limit: 10000
+          window: 1m
+  max:
+    displayName: Max tier
+    priority: 30
+    serviceAccountNamespace: maas-tier-max
+    serviceAccounts: [user7, user8, user9]
+    tokenRateLimits:
+      nemotron-3-nano-30b-a3b:
+        - limit: 50000
+          window: 1m
+      qwen3-8b-fp8:
+        - limit: 50000
+          window: 1m
+      "gemini-3.1-flash-lite":
+        - limit: 50000
+          window: 1m
+      "gpt-4.1-nano":
+        - limit: 50000
+          window: 1m
   admin:
     displayName: MaaS Admins
     groups:
@@ -202,6 +263,10 @@ keycloak:
 
 trafficUI:
   enabled: false
+  # Namespace for the UI's own resources. The chart creates it. Leave empty to keep
+  # them in the release namespace, which is where they used to live — but `default`
+  # is hidden from the console's Topology view, so the UI could not be found there.
+  namespace: maas-pulse
   image: quay.io/rh-ee-sherwang/maas-pulse:latest
   replicas: 1
   maasGatewayUrl: ""
@@ -212,10 +277,20 @@ trafficUI:
   modelNames: "publishers/llm/models/nemotron-3-nano-30b-a3b,publishers/llm/models/qwen3-8b-fp8,gemini-3.1-flash-lite,gpt-4.1-nano"
   modelDisplayNames: "Nemotron 30B,Qwen3 8B,Gemini Flash,GPT-4.1 Nano"
   modelTypes: "internal,internal,external,external"
-  userNames: "admin,user1,user2,user3,user4,user5"
-  userDisplayNames: "VIP,user1,user2,user3,user4,user5"
-  userRateLimits: "100k/min,5k/min,5k/min,5k/min,5k/min,5k/min"
-  userGroups: "admin,user,user,user,user,user"
+  # The demo cohort: one admin plus nine users spread across three subscription tiers.
+  # Every list below is positional and must stay the same length and order.
+  userNames: "admin,user1,user2,user3,user4,user5,user6,user7,user8,user9"
+  userDisplayNames: "Admin,Free 1,Free 2,Free 3,Pro 1,Pro 2,Pro 3,Max 1,Max 2,Max 3"
+  userRateLimits: "100k/min,1k/min,1k/min,1k/min,10k/min,10k/min,10k/min,50k/min,50k/min,50k/min"
+  # Only used for users WITHOUT a ServiceAccount; for the rest the group is derived
+  # from the SA namespace, so the subscription and the user list cannot disagree.
+  userGroups: "admin,,,,,,,,,"
+  # Which tier each user belongs to, used to band them in the topology view.
+  userTiers: ",free,free,free,pro,pro,pro,max,max,max"
+  # ServiceAccount backing each user, as namespace/name. A user with an entry here
+  # authenticates with a minted token and needs no API key; admin is left blank so it
+  # keeps using the API key path until that is migrated too.
+  userServiceAccounts: ",maas-tier-free/user1,maas-tier-free/user2,maas-tier-free/user3,maas-tier-pro/user4,maas-tier-pro/user5,maas-tier-pro/user6,maas-tier-max/user7,maas-tier-max/user8,maas-tier-max/user9"
   subscriptionNamespace: "models-as-a-service"
   # MaaS API keys, comma-separated, in the same order as userNames. When set, the
   # chart creates the `maas-pulse-ui-apikeys` Secret itself — delete any manually

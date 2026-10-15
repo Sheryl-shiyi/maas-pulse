@@ -1,0 +1,12 @@
+{{- if and .Values.trafficUI.enabled (ne (include "maas-pulse.uiNamespace" .) .Release.Namespace) }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "maas-pulse.uiNamespace" . }}
+  labels:
+    app.kubernetes.io/component: traffic-ui
+    {{- include "maas-pulse.uiLabels" . | nindent 4 }}
+  annotations:
+    openshift.io/display-name: maas-pulse
+    openshift.io/description: Live traffic visualization and chargeback for RHOAI Models-as-a-Service
+{{- end }}

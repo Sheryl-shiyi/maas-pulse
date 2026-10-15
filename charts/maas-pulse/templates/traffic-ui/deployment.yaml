@@ -3,6 +3,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: maas-pulse-ui
+  namespace: {{ include "maas-pulse.uiNamespace" . }}
   labels:
     app.kubernetes.io/component: traffic-ui
     {{- include "maas-pulse.uiLabels" . | nindent 4 }}
@@ -52,6 +53,10 @@ spec:
               value: {{ .Values.trafficUI.userRateLimits | default "" | quote }}
             - name: USER_GROUPS
               value: {{ .Values.trafficUI.userGroups | default "" | quote }}
+            - name: USER_SERVICE_ACCOUNTS
+              value: {{ .Values.trafficUI.userServiceAccounts | default "" | quote }}
+            - name: USER_TIERS
+              value: {{ .Values.trafficUI.userTiers | default "" | quote }}
             - name: SUBSCRIPTION_NAMESPACE
               value: {{ .Values.trafficUI.subscriptionNamespace | default "models-as-a-service" | quote }}
             - name: MODELS_NAMESPACE

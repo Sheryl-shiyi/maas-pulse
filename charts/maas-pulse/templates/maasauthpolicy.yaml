@@ -1,5 +1,9 @@
 {{- range $name, $sub := .Values.subscriptions }}
-{{- if $sub.groups }}
+{{- $groups := $sub.groups | default list }}
+{{- if $sub.serviceAccountNamespace }}
+{{- $groups = append $groups (dict "name" (printf "system:serviceaccounts:%s" $sub.serviceAccountNamespace)) }}
+{{- end }}
+{{- if $groups }}
 ---
 apiVersion: maas.opendatahub.io/v1alpha1
 kind: MaaSAuthPolicy
@@ -16,10 +20,8 @@ spec:
   - name: {{ $model }}
     namespace: {{ $.Values.modelsNamespace }}
   {{- end }}
-  {{- with $sub.groups }}
   subjects:
     groups:
-      {{- toYaml . | nindent 6 }}
-  {{- end }}
+      {{- toYaml $groups | nindent 6 }}
 {{- end }}
 {{- end }}

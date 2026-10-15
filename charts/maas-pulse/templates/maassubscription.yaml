@@ -19,7 +19,13 @@ spec:
       {{- toYaml . | nindent 6 }}
     {{- end }}
   {{- end }}
-  {{- with $sub.groups }}
+  {{- /* A tier owns the built-in group of its ServiceAccount namespace, so the
+         subscription owns a real group and the dashboard editor can save it. */}}
+  {{- $groups := $sub.groups | default list }}
+  {{- if $sub.serviceAccountNamespace }}
+  {{- $groups = append $groups (dict "name" (printf "system:serviceaccounts:%s" $sub.serviceAccountNamespace)) }}
+  {{- end }}
+  {{- with $groups }}
   owner:
     groups:
       {{- toYaml . | nindent 6 }}

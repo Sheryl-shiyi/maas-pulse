@@ -1,0 +1,37 @@
+# Taint GPU nodes from the MachineSet, not by hand.
+#
+# Why: the taint used to be applied manually to running nodes, so it was lost every
+# time the GPU MachineSets were scaled to 0 and back up — which is this project's normal
+# daily rhythm. On 2026-10-15 all three GPU nodes came back with no taint at all.
+# Putting it in spec.template.spec.taints makes the Machine API apply it at node
+# creation, so it survives every rebuild.
+#
+# Our model pods already tolerate it (charts/maas-pulse/values.yaml, per-model
+# `tolerations`), so this changes nothing for them. What it buys is keeping ordinary
+# workloads off expensive GPU machines.
+#
+# Apply to both GPU MachineSets:
+#
+#   oc patch machineset cluster-gpu-g5-worker-us-east-2a -n openshift-machine-api \
+#     --type=merge --patch-file docs/reference/gpu-machineset-taint.yaml
+#   oc patch machineset cluster-gpu-worker-us-east-2a -n openshift-machine-api \
+#     --type=merge --patch-file docs/reference/gpu-machineset-taint.yaml
+#
+# Note: patching a MachineSet does NOT retaint nodes that already exist — it only
+# affects machines created afterwards. Since the GPUs get torn down and recreated at the
+# end of each session, the next rebuild picks it up with no extra work. To taint the
+# current nodes immediately instead:
+#
+#   oc adm taint node -l nvidia.com/gpu.product --overwrite nvidia.com/gpu=:NoSchedule
+#
+# Verify after the next rebuild:
+#
+#   oc get nodes -l nvidia.com/gpu.product -o custom-columns=\
+# NAME:.metadata.name,TAINTS:.spec.taints
+spec:
+  template:
+    spec:
+      taints:
+        - key: nvidia.com/gpu
+          value: ""
+          effect: NoSchedule

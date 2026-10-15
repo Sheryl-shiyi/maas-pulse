@@ -3,6 +3,7 @@ apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
   name: maas-pulse-ui
+  namespace: {{ include "maas-pulse.uiNamespace" . }}
   labels:
     app.kubernetes.io/component: traffic-ui
     {{- include "maas-pulse.uiLabels" . | nindent 4 }}

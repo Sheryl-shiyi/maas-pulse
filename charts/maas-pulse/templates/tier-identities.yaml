@@ -1,0 +1,83 @@
+{{/*
+Demo identities as ServiceAccounts, one namespace per subscription tier.
+
+Why ServiceAccounts rather than MaaS API keys: a key is a row in the maas-api database
+that can stop working without warning — three of our six demo keys did exactly that, and
+the reason was not recoverable. A ServiceAccount token is minted on demand and rotated by
+Kubernetes, so there is nothing to expire and nothing to create by hand. The gateway
+accepts them because every AuthConfig enables the `openshift-identities` method backed by
+kubernetesTokenReview.
+
+Why one namespace per tier: a ServiceAccount is automatically a member of the built-in
+group `system:serviceaccounts:<its namespace>`. Making the namespace the tier means the
+tier is a real Kubernetes group, so the subscription can own a group rather than a list
+of users — which matters because the RHOAI dashboard's subscription editor requires a
+group and cannot save a users-only subscription. Moving a user between tiers is then just
+moving which namespace its ServiceAccount lives in.
+*/}}
+{{- range $name, $sub := .Values.subscriptions }}
+{{- if $sub.serviceAccountNamespace }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $sub.serviceAccountNamespace }}
+  labels:
+    maas-pulse.io/tier: {{ $name }}
+    {{- include "maas-pulse.labels" $ | nindent 4 }}
+  annotations:
+    openshift.io/display-name: {{ printf "maas-pulse %s tier" ($sub.displayName | default (title $name)) }}
+    openshift.io/description: >-
+      Holds the demo identities on the {{ $sub.displayName | default (title $name) }}
+      subscription. Membership of this namespace IS membership of the tier.
+{{- range $sa := $sub.serviceAccounts }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $sa }}
+  namespace: {{ $sub.serviceAccountNamespace }}
+  labels:
+    maas-pulse.io/tier: {{ $name }}
+    maas-pulse.io/demo-identity: "true"
+    {{- include "maas-pulse.labels" $ | nindent 4 }}
+{{- end }}
+{{- if $.Values.trafficUI.enabled }}
+---
+{{/* The traffic UI mints a short-lived token per identity through the TokenRequest
+     API, so it needs create on the token subresource — and nothing else — in each
+     tier namespace. */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: maas-pulse-ui-token-minter
+  namespace: {{ $sub.serviceAccountNamespace }}
+  labels:
+    {{- include "maas-pulse.uiLabels" $ | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["serviceaccounts/token"]
+    verbs: ["create"]
+    resourceNames:
+      {{- range $sa := $sub.serviceAccounts }}
+      - {{ $sa }}
+      {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: maas-pulse-ui-token-minter
+  namespace: {{ $sub.serviceAccountNamespace }}
+  labels:
+    {{- include "maas-pulse.uiLabels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: maas-pulse-ui-token-minter
+subjects:
+  - kind: ServiceAccount
+    name: maas-pulse-ui
+    namespace: {{ include "maas-pulse.uiNamespace" $ }}
+{{- end }}
+{{- end }}
+{{- end }}

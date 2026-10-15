@@ -69,4 +69,21 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- /* part-of groups the resources into one card in the OpenShift console
+       Topology view; runtime picks the icon drawn on it. */}}
+app.kubernetes.io/part-of: maas-pulse
+app.openshift.io/runtime: nodejs
+{{- end }}
+
+{{/*
+Namespace the traffic UI runs in.
+
+It used to land in the release namespace, which is `default` — a namespace the
+OpenShift console hides from the Topology view unless you tick "Show default
+projects", so the UI was effectively invisible there. Giving it its own namespace
+also makes teardown a single delete. The Helm release itself stays where it is;
+only the UI's own resources move, so this needs no reinstall.
+*/}}
+{{- define "maas-pulse.uiNamespace" -}}
+{{- .Values.trafficUI.namespace | default .Release.Namespace }}
 {{- end }}
