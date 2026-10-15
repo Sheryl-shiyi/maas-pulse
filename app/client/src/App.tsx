@@ -14,7 +14,7 @@ const MAX_FEED = 50;
 const MAX_PARTICLES = 100;
 
 function initialModelState(info: ModelInfo): ModelState {
-  return { ...info, status: 'healthy', queueDepth: 0, latencyP95Ms: 0, kvCachePercent: 0, replicas: 1, desiredReplicas: 1 };
+  return { ...info, status: 'healthy', runningRequests: 0, queuedRequests: 0, latencyP95Ms: 0, kvCachePercent: 0, replicas: 1, desiredReplicas: 1 };
 }
 
 function initialUserState(info: UserInfo): UserState {
@@ -216,7 +216,8 @@ export default function App() {
           m.name === event.model ? {
             ...m,
             status: event.status,
-            queueDepth: event.queueDepth,
+            runningRequests: event.runningRequests,
+            queuedRequests: event.queuedRequests,
             latencyP95Ms: event.latencyP95Ms,
             kvCachePercent: event.kvCachePercent,
           } : m

@@ -1,5 +1,6 @@
 import https from 'https';
 import fs from 'fs';
+import { PRESSURE } from './prometheus.js';
 
 const SA_TOKEN_PATH = '/var/run/secrets/kubernetes.io/serviceaccount/token';
 const SA_CA_PATH = '/var/run/secrets/kubernetes.io/serviceaccount/ca.crt';
@@ -29,15 +30,18 @@ export function initAutoscaler(cfg: AutoscaleConfig) {
   console.log(`[autoscaler] namespace: ${cfg.namespace}, cooldown: ${cfg.cooldownSeconds}s`);
 }
 
-export async function checkAndScale(metrics: { model: string; queueDepth: number; kvCachePercent: number }[]) {
+export async function checkAndScale(metrics: { model: string; queuedRequests: number; kvCachePercent: number }[]) {
   if (!config) return;
 
   for (const m of config.models) {
     const metric = metrics.find(x => x.model === m.name);
     if (!metric) continue;
 
-    const overloaded = metric.queueDepth > 10 || metric.kvCachePercent > 85;
-    const idle = metric.queueDepth < 3 && metric.kvCachePercent < 30;
+    // Scale on back-pressure only. Requests already in the batch are not pressure;
+    // see the note on PRESSURE in prometheus.ts for what that cost us.
+    const overloaded = metric.queuedRequests > PRESSURE.queuedOverloaded
+      || metric.kvCachePercent > PRESSURE.kvOverloadedPercent;
+    const idle = metric.queuedRequests === 0 && metric.kvCachePercent < PRESSURE.kvIdlePercent;
 
     if (overloaded) {
       scaleDownTimers.delete(m.name);

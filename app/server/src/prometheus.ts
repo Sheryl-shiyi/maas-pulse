@@ -63,9 +63,32 @@ export async function query(promql: string): Promise<Record<string, string | num
   }
 }
 
-function computeStatus(queueDepth: number, kvCache: number): ModelStatus {
-  if (queueDepth > 10 || kvCache > 85) return 'overloaded';
-  if (queueDepth > 5 || kvCache > 60) return 'busy';
+/**
+ * Pressure thresholds, shared by the colour of a model node and by the decision to
+ * scale it.
+ *
+ * `vllm:num_requests_running` is deliberately absent. It counts the requests in the
+ * current continuous batch, which is vLLM working normally, not a backlog: on
+ * 2026-10-15 a replica sat at 20 running with 0 waiting and 1.9% KV usage, and both the
+ * node and the autoscaler called that overloaded. A GPU was provisioned for nothing and
+ * the topology was red while the model was nearly idle.
+ *
+ * What actually indicates pressure is requests that could not get into the batch, and
+ * KV cache approaching full. The numbers match the thresholds RHOAI's own Workload
+ * Variant Autoscaler ships with: queueLengthThreshold 5, kvCacheThreshold 0.80.
+ */
+export const PRESSURE = {
+  queuedOverloaded: 5,
+  kvOverloadedPercent: 80,
+  queuedBusy: 1,
+  kvBusyPercent: 50,
+  /** Idle enough to give a replica back. */
+  kvIdlePercent: 20,
+} as const;
+
+export function computeStatus(queued: number, kvCache: number): ModelStatus {
+  if (queued > PRESSURE.queuedOverloaded || kvCache > PRESSURE.kvOverloadedPercent) return 'overloaded';
+  if (queued >= PRESSURE.queuedBusy || kvCache > PRESSURE.kvBusyPercent) return 'busy';
   return 'healthy';
 }
 
@@ -77,7 +100,7 @@ async function pollModelMetrics(models: ModelInfo[]) {
     query('histogram_quantile(0.95, rate(vllm:e2e_request_latency_seconds_bucket[1m]))'),
   ]);
 
-  const scaleMetrics: { model: string; queueDepth: number; kvCachePercent: number }[] = [];
+  const scaleMetrics: { model: string; queuedRequests: number; kvCachePercent: number }[] = [];
 
   for (const model of models) {
     if (model.type === 'external') continue;
@@ -88,20 +111,24 @@ async function pollModelMetrics(models: ModelInfo[]) {
     const kvVal = kvCache.find(r => String(r['model_name']) === baseName);
     const latVal = latency.find(r => String(r['model_name']) === baseName);
 
-    const queueDepth = (Number(runningVal?.value) || 0) + (Number(waitingVal?.value) || 0);
+    // Kept apart on purpose: running is how many the batch is chewing through,
+    // queued is how many could not get in. Only the second is back-pressure.
+    const runningRequests = Number(runningVal?.value) || 0;
+    const queuedRequests = Number(waitingVal?.value) || 0;
     const kvPercent = (Number(kvVal?.value) || 0) * 100;
     const latP95 = (Number(latVal?.value) || 0) * 1000;
 
     broadcast({
       type: 'model_status',
       model: model.name,
-      queueDepth,
+      runningRequests: Math.round(runningRequests),
+      queuedRequests: Math.round(queuedRequests),
       latencyP95Ms: Math.round(latP95),
       kvCachePercent: Math.round(kvPercent),
-      status: computeStatus(queueDepth, kvPercent),
+      status: computeStatus(queuedRequests, kvPercent),
     });
 
-    scaleMetrics.push({ model: baseName, queueDepth, kvCachePercent: Math.round(kvPercent) });
+    scaleMetrics.push({ model: baseName, queuedRequests, kvCachePercent: Math.round(kvPercent) });
   }
 
   await checkAndScale(scaleMetrics);

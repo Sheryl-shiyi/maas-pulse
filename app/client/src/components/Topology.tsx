@@ -223,7 +223,7 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
           const label = totalBoxes > 1 ? `${model.displayName} #${box.replicaIdx + 1}` : model.displayName;
           drawText(ctx, label, box.x, box.y - 8, '#fff', 13, 'bold');
           if (model.type === 'internal') {
-            drawText(ctx, `Q:${model.queueDepth} KV:${model.kvCachePercent}%`, box.x, box.y + 12, 'rgba(255,255,255,0.7)', 11);
+            drawText(ctx, `R:${model.runningRequests} Q:${model.queuedRequests} KV:${model.kvCachePercent}%`, box.x, box.y + 12, 'rgba(255,255,255,0.7)', 11);
           } else {
             drawText(ctx, 'external', box.x, box.y + 12, 'rgba(255,255,255,0.7)', 11);
           }
