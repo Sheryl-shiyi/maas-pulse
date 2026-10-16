@@ -4,6 +4,29 @@ import type { ModelState, UserState, ActiveRequest } from '../types';
 const USER_COLORS = ['#42a5f5', '#66bb6a', '#ffa726', '#ab47bc', '#ef5350', '#26c6da', '#ec407a', '#8d6e63'];
 const STATUS_COLORS: Record<string, string> = { healthy: '#4caf50', busy: '#ff9800', overloaded: '#f44336' };
 const RATE_LIMITED_COLOR = '#333333';
+const QUEUE_COLOR = '#ef4444';
+const CACHE_COLOR = '#38bdf8';
+
+/**
+ * Full scale for the load bar, in requests.
+ *
+ * This is MAX_IN_FLIGHT from server/src/traffic.ts — the generator will not have more
+ * than this outstanding at once, so a full bar means one replica is holding everything
+ * the demo sent. An arbitrary round number would make the bar unreadable: too small and
+ * it pins at full the moment traffic starts, too large and the queue growing is invisible.
+ */
+const LOAD_BAR_SCALE = 50;
+
+/**
+ * How fast the bars catch up to a new reading, as a fraction per frame.
+ *
+ * Prometheus scrapes vLLM every 5 seconds, so the figures arrive as steps however often
+ * the UI polls. Drawing them raw makes a replica jump from empty to 25 in one frame,
+ * which reads as a glitch rather than as a queue filling. Easing turns each step into
+ * roughly a third of a second of movement. The numbers printed in the box stay exact —
+ * only the bar is smoothed, so nothing claims a measurement that was not taken.
+ */
+const BAR_EASING = 0.12;
 
 interface TopologyProps {
   users: UserState[];
@@ -16,6 +39,9 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
   const animRef = useRef<number>(0);
   const propsRef = useRef({ users, models, activeRequests });
   propsRef.current = { users, models, activeRequests };
+  /** Eased bar values per replica, keyed `<model>#<replicaIdx>`, so each one keeps its
+   *  own animation across frames and across re-layouts. */
+  const barsRef = useRef(new Map<string, { running: number; queued: number; cache: number }>());
 
   const getLayout = useCallback((w: number, h: number) => {
     const userX = w * 0.13;
@@ -106,7 +132,7 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
       }
 
       // Compute model box positions (one box per replica)
-      const modelRectW = 150;
+      const modelRectW = 176;
       const modelRectH = 56;
       const boxes: { modelIdx: number; replicaIdx: number; provisioning: boolean; x: number; y: number }[] = [];
       for (let i = 0; i < models.length; i++) {
@@ -228,12 +254,31 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
           const label = totalBoxes > 1 ? `${model.displayName} #${box.replicaIdx + 1}` : model.displayName;
           drawText(ctx, label, box.x, box.y - 8, '#fff', 13, 'bold');
           if (model.type === 'internal') {
+            const hit = stat?.cacheHitPercent;
             const detail = stat
               ? `R:${stat.runningRequests} Q:${stat.queuedRequests} KV:${stat.kvCachePercent}%`
+                + (hit === null || hit === undefined ? '' : ` hit:${hit}%`)
               : 'awaiting metrics';
-            drawText(ctx, detail, box.x, box.y + 12, 'rgba(255,255,255,0.7)', 11);
+            drawText(ctx, detail, box.x, box.y + 12, 'rgba(255,255,255,0.7)', 10);
           } else {
             drawText(ctx, 'external', box.x, box.y + 12, 'rgba(255,255,255,0.7)', 11);
+          }
+
+          // Below the box: how much work this replica is holding, and how warm its
+          // prefix cache is. Together these are what separates a replica that has just
+          // been scaled up from the one it joined — same colour, very different bars.
+          if (model.type === 'internal' && stat) {
+            const key = `${model.name}#${box.replicaIdx}`;
+            const eased = barsRef.current.get(key) ?? { running: 0, queued: 0, cache: 0 };
+            eased.running = approach(eased.running, stat.runningRequests);
+            eased.queued = approach(eased.queued, stat.queuedRequests);
+            eased.cache = approach(eased.cache, stat.cacheHitPercent ?? 0);
+            barsRef.current.set(key, eased);
+
+            const barX = box.x - modelRectW / 2;
+            const barY = box.y + modelRectH / 2 + 6;
+            drawLoadBar(ctx, barX, barY, modelRectW, eased.running, eased.queued, statusColor);
+            drawCacheBar(ctx, barX, barY + 9, modelRectW, eased.cache, stat.cacheHitPercent === null);
           }
         }
       }
@@ -322,6 +367,73 @@ function drawRateLimitCard(
     ctx.fillText(blocked ? 'BLOCKED' : limit, x + cardW - padX, rowY);
   }
 
+}
+
+/** One easing step toward a target, snapping once the remaining gap is invisible. */
+function approach(current: number, target: number): number {
+  const next = current + (target - current) * BAR_EASING;
+  return Math.abs(target - next) < 0.05 ? target : next;
+}
+
+function barTrack(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, h / 2);
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.14)';
+  ctx.fill();
+}
+
+/**
+ * Requests this replica is holding: the continuous batch it is serving, then the
+ * backlog that could not get into it. The backlog is drawn in red regardless of the
+ * status colour because a queue is the thing to watch, whatever the box says.
+ */
+function drawLoadBar(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number,
+  running: number, queued: number,
+  statusColor: string,
+): void {
+  const h = 7;
+  barTrack(ctx, x, y, w, h);
+
+  const runW = Math.min(running / LOAD_BAR_SCALE, 1) * w;
+  const totalW = Math.min((running + queued) / LOAD_BAR_SCALE, 1) * w;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, h / 2);
+  ctx.clip();
+  if (runW > 0) {
+    ctx.fillStyle = statusColor;
+    ctx.fillRect(x, y, runW, h);
+  }
+  if (totalW > runW) {
+    ctx.fillStyle = QUEUE_COLOR;
+    ctx.fillRect(x + runW, y, totalW - runW, h);
+  }
+  ctx.restore();
+}
+
+/**
+ * Prefix cache hit rate. An empty track with no fill is a replica that has served
+ * nothing recently and therefore has no hit rate — not one whose cache is cold.
+ */
+function drawCacheBar(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number,
+  percent: number, unknown: boolean,
+): void {
+  const h = 4;
+  barTrack(ctx, x, y, w, h);
+  if (unknown) return;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, h / 2);
+  ctx.clip();
+  ctx.fillStyle = CACHE_COLOR;
+  ctx.fillRect(x, y, (Math.min(Math.max(percent, 0), 100) / 100) * w, h);
+  ctx.restore();
 }
 
 function simpleHash(str: string): number {

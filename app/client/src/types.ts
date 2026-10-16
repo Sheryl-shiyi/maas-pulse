@@ -19,6 +19,9 @@ export interface ReplicaStatus {
   runningRequests: number;
   queuedRequests: number;
   kvCachePercent: number;
+  /** Prefix cache hit rate over the last couple of minutes, or null when this replica
+   *  has served nothing recently and so has no hit rate to report. */
+  cacheHitPercent: number | null;
   status: ModelStatus;
 }
 export type PromptShape = 'short' | 'shared-prefix' | 'unique-prefix';

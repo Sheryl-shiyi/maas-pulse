@@ -110,12 +110,25 @@ export function orderedPods(model: string, seen: string[]): string[] {
   return kept;
 }
 
+/**
+ * Window for the prefix cache hit rate.
+ *
+ * Deliberately not the raw counters: those are cumulative since the pod started, so a
+ * replica that was warm an hour ago keeps looking warm while it serves nothing. A rate
+ * over a short window answers the question the topology is actually asking — is this
+ * replica getting cache hits *now* — which is what makes a freshly scaled-up pod look
+ * different from the one it joined.
+ */
+const CACHE_RATE_WINDOW = '2m';
+
 async function pollModelMetrics(models: ModelInfo[]) {
-  const [running, waiting, kvCache, latency] = await Promise.all([
+  const [running, waiting, kvCache, latency, cacheHits, cacheQueries] = await Promise.all([
     query('vllm:num_requests_running'),
     query('vllm:num_requests_waiting'),
     query('vllm:kv_cache_usage_perc'),
     query('histogram_quantile(0.95, rate(vllm:e2e_request_latency_seconds_bucket[1m]))'),
+    query(`rate(vllm:prefix_cache_hits_total[${CACHE_RATE_WINDOW}])`),
+    query(`rate(vllm:prefix_cache_queries_total[${CACHE_RATE_WINDOW}])`),
   ]);
 
   const scaleMetrics: { model: string; queuedRequests: number; kvCachePercent: number }[] = [];
@@ -132,6 +145,8 @@ async function pollModelMetrics(models: ModelInfo[]) {
     const runningByPod = byPod(running);
     const waitingByPod = byPod(waiting);
     const kvByPod = byPod(kvCache);
+    const hitsByPod = byPod(cacheHits);
+    const queriesByPod = byPod(cacheQueries);
 
     const pods = orderedPods(baseName, [...new Set([
       ...runningByPod.keys(), ...waitingByPod.keys(), ...kvByPod.keys(),
@@ -141,10 +156,17 @@ async function pollModelMetrics(models: ModelInfo[]) {
       const r = runningByPod.get(pod) ?? 0;
       const q = waitingByPod.get(pod) ?? 0;
       const kv = (kvByPod.get(pod) ?? 0) * 100;
+      // Null rather than zero when nothing was looked up: an idle replica has no hit
+      // rate, and drawing that as 0% would claim its cache is cold when it may be warm.
+      const queries = queriesByPod.get(pod) ?? 0;
+      const hitPercent = queries > 0
+        ? Math.round(((hitsByPod.get(pod) ?? 0) / queries) * 100)
+        : null;
       return {
         runningRequests: Math.round(r),
         queuedRequests: Math.round(q),
         kvCachePercent: Math.round(kv),
+        cacheHitPercent: hitPercent,
         status: computeStatus(q, kv),
       };
     });
