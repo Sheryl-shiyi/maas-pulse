@@ -38,6 +38,8 @@ Istio Telemetry and Kuadrant TelemetryPolicy capture request-level metrics (late
 
 A custom web UI (maas-pulse Traffic UI) provides real-time traffic flow visualization: a canvas-rendered topology shows users, the MaaS gateway, and models as an animated network graph, with colored particles representing live inference requests flowing through the system. The UI displays per-user rate limits (dynamically updated via K8s Watch on MaaSSubscription CRs), rate-limit blocking status, and per-model health metrics (queue depth, KV cache utilization, p95 latency) — all updated in real-time via WebSocket. Rate limit changes made in the RHOAI console are reflected in the UI within seconds, without requiring a page refresh or redeployment.
 
+Each replica gets its own box, with two bars beneath it. The upper bar is the work that replica is holding: the requests in its continuous batch, with any backlog stacked on in red. The lower bar is its prefix cache hit rate over the last two minutes — a replica that has served nothing recently draws an empty track rather than claiming a cold cache. Together these make a scale-up legible: two boxes the same colour, one cache bar full and one empty, is the endpoint picker warming a new replica.
+
 ### See it in action
 
 > **WIP**: Screenshots and a walkthrough video will be added soon. The traffic UI is deployed and functional — see [Architecture diagrams](#architecture-diagrams) below for how it works.
@@ -526,6 +528,10 @@ picker concentrates traffic on whichever replica is already warm. Switch to **Un
 prefix** and that advantage disappears — the same hardware, the same load, only the
 cacheability of the prompt has changed.
 
+The cache bar under each replica is where to watch this. Under **Shared prefix** the
+warm replica's bar sits high while the other stays near empty; under **Unique prefix**
+both fall, because there is nothing left to reuse.
+
 ## Development
 
 ```bash
@@ -620,7 +626,7 @@ MaaS provides an OpenAI-compatible API gateway for model inference:
 
 - **Istio Telemetry** (`telemetry.yaml`): Captures `REQUEST_DURATION` with subscription label from `x-maas-subscription` header
 - **Kuadrant TelemetryPolicy** (`telemetrypolicy.yaml`): Extracts model name from response body, user/subscription/org from auth identity
-- **Prometheus**: Metrics scraped via user-workload monitoring, queryable through Thanos Querier
+- **Prometheus**: Metrics scraped via user-workload monitoring, queryable through Thanos Querier. The vLLM pods are scraped every 5s (`monitoring.vllmScrapeInterval`) rather than the cluster default of 30s, so the queue depth and batch size in the UI climb instead of stepping. KServe generates the PodMonitors without an interval, so a post-upgrade hook job sets it.
 - **Grafana** (`docs/examples/grafana.yaml`): Example deployment with OAuth proxy and Prometheus datasource
 
 ### vLLM configuration
