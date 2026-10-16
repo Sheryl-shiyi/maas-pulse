@@ -218,16 +218,20 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
           ctx.setLineDash([]);
           drawText(ctx, 'Starting...', box.x, box.y, '#f59e0b', 13, 'bold');
         } else {
-          // Each box shows its own replica's figures. Falling back to the model-level
-          // summary only matters before the first poll, or for a replica whose pod is
-          // up but not yet reporting metrics.
-          const stat = model.replicaStats[box.replicaIdx] ?? model;
-          const statusColor = STATUS_COLORS[stat.status] || '#4caf50';
+          // A replica that is Ready but has not been scraped yet has no figures of its
+          // own. It must not borrow the model-level summary: with only one replica
+          // reporting, that summary equals the other replica's numbers, so a brand new
+          // pod appeared as an exact clone of the busy one it had just joined.
+          const stat = model.replicaStats[box.replicaIdx];
+          const statusColor = stat ? (STATUS_COLORS[stat.status] || '#4caf50') : '#475569';
           drawRoundedRect(ctx, box.x - modelRectW / 2, box.y - modelRectH / 2, modelRectW, modelRectH, 10, statusColor);
           const label = totalBoxes > 1 ? `${model.displayName} #${box.replicaIdx + 1}` : model.displayName;
           drawText(ctx, label, box.x, box.y - 8, '#fff', 13, 'bold');
           if (model.type === 'internal') {
-            drawText(ctx, `R:${stat.runningRequests} Q:${stat.queuedRequests} KV:${stat.kvCachePercent}%`, box.x, box.y + 12, 'rgba(255,255,255,0.7)', 11);
+            const detail = stat
+              ? `R:${stat.runningRequests} Q:${stat.queuedRequests} KV:${stat.kvCachePercent}%`
+              : 'awaiting metrics';
+            drawText(ctx, detail, box.x, box.y + 12, 'rgba(255,255,255,0.7)', 11);
           } else {
             drawText(ctx, 'external', box.x, box.y + 12, 'rgba(255,255,255,0.7)', 11);
           }
