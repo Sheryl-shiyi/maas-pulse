@@ -92,6 +92,24 @@ export function computeStatus(queued: number, kvCache: number): ModelStatus {
   return 'healthy';
 }
 
+/**
+ * Stable ordering of the pods backing each model, so a replica keeps its number.
+ *
+ * The UI labels boxes #1, #2 and draws them in this order. Sorting by pod name would
+ * let a newly created pod sort ahead of the existing one and appear to be #1, which
+ * reads as the established replica resetting. Appending on first sight gives what the
+ * eye expects: the incumbent stays #1, the new one shows up beneath it.
+ */
+const podOrder = new Map<string, string[]>();
+
+export function orderedPods(model: string, seen: string[]): string[] {
+  const known = podOrder.get(model) ?? [];
+  const kept = known.filter(p => seen.includes(p));
+  for (const p of seen) if (!kept.includes(p)) kept.push(p);
+  podOrder.set(model, kept);
+  return kept;
+}
+
 async function pollModelMetrics(models: ModelInfo[]) {
   const [running, waiting, kvCache, latency] = await Promise.all([
     query('vllm:num_requests_running'),
@@ -106,16 +124,40 @@ async function pollModelMetrics(models: ModelInfo[]) {
     if (model.type === 'external') continue;
 
     const baseName = stripMaasPrefix(model.name);
-    const runningVal = running.find(r => String(r['model_name']) === baseName);
-    const waitingVal = waiting.find(r => String(r['model_name']) === baseName);
-    const kvVal = kvCache.find(r => String(r['model_name']) === baseName);
-    const latVal = latency.find(r => String(r['model_name']) === baseName);
+    const mine = (rows: Record<string, string | number>[]) =>
+      rows.filter(r => String(r['model_name']) === baseName);
+    const byPod = (rows: Record<string, string | number>[]) =>
+      new Map(mine(rows).map(r => [String(r['pod'] ?? ''), Number(r['value']) || 0]));
 
-    // Kept apart on purpose: running is how many the batch is chewing through,
-    // queued is how many could not get in. Only the second is back-pressure.
-    const runningRequests = Number(runningVal?.value) || 0;
-    const queuedRequests = Number(waitingVal?.value) || 0;
-    const kvPercent = (Number(kvVal?.value) || 0) * 100;
+    const runningByPod = byPod(running);
+    const waitingByPod = byPod(waiting);
+    const kvByPod = byPod(kvCache);
+
+    const pods = orderedPods(baseName, [...new Set([
+      ...runningByPod.keys(), ...waitingByPod.keys(), ...kvByPod.keys(),
+    ])].filter(Boolean));
+
+    const perReplica = pods.map(pod => {
+      const r = runningByPod.get(pod) ?? 0;
+      const q = waitingByPod.get(pod) ?? 0;
+      const kv = (kvByPod.get(pod) ?? 0) * 100;
+      return {
+        runningRequests: Math.round(r),
+        queuedRequests: Math.round(q),
+        kvCachePercent: Math.round(kv),
+        status: computeStatus(q, kv),
+      };
+    });
+
+    // Model-level figures summarise the replicas rather than picking one of them, which
+    // is what an earlier `.find()` did: every replica box showed the first replica's
+    // numbers, so a cold new replica appeared as busy as the one it was meant to
+    // relieve. Queued sums because the backlog is shared; KV takes the maximum because
+    // one replica near full is pressure even if another is empty.
+    const runningRequests = [...runningByPod.values()].reduce((a, b) => a + b, 0);
+    const queuedRequests = [...waitingByPod.values()].reduce((a, b) => a + b, 0);
+    const kvPercent = Math.max(0, ...[...kvByPod.values()].map(v => v * 100));
+    const latVal = latency.find(r => String(r['model_name']) === baseName);
     const latP95 = (Number(latVal?.value) || 0) * 1000;
 
     broadcast({
@@ -126,6 +168,7 @@ async function pollModelMetrics(models: ModelInfo[]) {
       latencyP95Ms: Math.round(latP95),
       kvCachePercent: Math.round(kvPercent),
       status: computeStatus(queuedRequests, kvPercent),
+      replicas: perReplica,
     });
 
     scaleMetrics.push({ model: baseName, queuedRequests, kvCachePercent: Math.round(kvPercent) });

@@ -218,12 +218,16 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
           ctx.setLineDash([]);
           drawText(ctx, 'Starting...', box.x, box.y, '#f59e0b', 13, 'bold');
         } else {
-          const statusColor = STATUS_COLORS[model.status] || '#4caf50';
+          // Each box shows its own replica's figures. Falling back to the model-level
+          // summary only matters before the first poll, or for a replica whose pod is
+          // up but not yet reporting metrics.
+          const stat = model.replicaStats[box.replicaIdx] ?? model;
+          const statusColor = STATUS_COLORS[stat.status] || '#4caf50';
           drawRoundedRect(ctx, box.x - modelRectW / 2, box.y - modelRectH / 2, modelRectW, modelRectH, 10, statusColor);
           const label = totalBoxes > 1 ? `${model.displayName} #${box.replicaIdx + 1}` : model.displayName;
           drawText(ctx, label, box.x, box.y - 8, '#fff', 13, 'bold');
           if (model.type === 'internal') {
-            drawText(ctx, `R:${model.runningRequests} Q:${model.queuedRequests} KV:${model.kvCachePercent}%`, box.x, box.y + 12, 'rgba(255,255,255,0.7)', 11);
+            drawText(ctx, `R:${stat.runningRequests} Q:${stat.queuedRequests} KV:${stat.kvCachePercent}%`, box.x, box.y + 12, 'rgba(255,255,255,0.7)', 11);
           } else {
             drawText(ctx, 'external', box.x, box.y + 12, 'rgba(255,255,255,0.7)', 11);
           }
