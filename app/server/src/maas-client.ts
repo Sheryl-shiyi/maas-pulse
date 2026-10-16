@@ -51,7 +51,12 @@ function buildClient(bearer: string): OpenAI {
     baseURL: baseUrl,
     apiKey: bearer,
     timeout: 30000,
-    maxRetries: 1,
+    // No retry. A timeout here does not cancel the work the model already queued, so
+    // retrying adds a second copy of a request nobody is waiting for any more. Under
+    // overload that doubles the arriving load exactly when it is least affordable, and
+    // the queue fills with abandoned work — 117 requests from the UI once left 280
+    // queued on the pod.
+    maxRetries: 0,
     httpAgent: agent,
   });
 }

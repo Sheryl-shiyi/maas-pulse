@@ -139,11 +139,22 @@ defaultServingImage: registry.redhat.io/rhaii/vllm-cuda-rhel9:3.4.0
 #
 # Weights are relative, not normalised. Raising prefixCacheScorer favours cache
 # reuse over even load; raising noHitLruScorer favours spreading onto cold
-# replicas. The defaults below are the RHOAI 3.5 defaults.
+# replicas.
+#
+# These are the RHOAI 3.5 defaults except for queueScorer, raised from 2 to 4. With the
+# defaults, prefix cache affinity at weight 3 outranked queue depth at 2 under overload:
+# on 2026-10-16 a replica sat with 280 requests queued while a freshly added one had
+# served 10 in its lifetime, because the warm replica kept winning on cache locality.
+# Scaling up relieved nothing.
+#
+# Cache affinity should win while every replica is healthy — that is the whole point of
+# the endpoint picker — and lose once one of them is backing up, which is precisely what
+# queue depth measures. Putting queueScorer above prefixCacheScorer encodes that order.
+# The right ratio depends on the workload; this is a demo default, not a universal one.
 epp:
   enabled: true
   weights:
-    queueScorer: 2
+    queueScorer: 4
     kvCacheUtilizationScorer: 2
     prefixCacheScorer: 3
     noHitLruScorer: 2

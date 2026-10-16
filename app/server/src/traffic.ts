@@ -42,6 +42,7 @@ export async function startTraffic(config: TrafficConfig) {
     return;
   }
   running = true;
+  skippedForBackpressure = 0;
   activeShape = config.promptShape;
   activePromptTokens = config.promptTokens;
   abortController = new AbortController();
@@ -106,8 +107,25 @@ function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]!;
 }
 
+/**
+ * Ceiling on requests in flight at once.
+ *
+ * Without one the generator fires at its configured rate regardless of whether anything
+ * is being answered, so when the model slows down the backlog grows without bound and
+ * every request times out — which looks like a broken system rather than a busy one. A
+ * real client has a connection pool and would stop at some depth; this is that.
+ */
+const MAX_IN_FLIGHT = 50;
+let skippedForBackpressure = 0;
+
 function launchRequest(user: string, model: string, signal: AbortSignal) {
   if (isModelCoolingDown(user, model)) return;
+  if (pending.size >= MAX_IN_FLIGHT) {
+    if (++skippedForBackpressure % 50 === 0) {
+      console.log(`[traffic] backpressure: ${pending.size} in flight, skipped ${skippedForBackpressure} so far`);
+    }
+    return;
+  }
   const p = fireRequest(user, model, signal);
   pending.add(p);
   p.finally(() => pending.delete(p));
