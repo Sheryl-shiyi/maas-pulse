@@ -471,6 +471,61 @@ oc delete namespace llm
 
 > **Note**: Uninstalling the dependency-operators chart does not remove the operators themselves (OLM subscriptions persist). To fully remove operators, delete the subscriptions and CSVs manually.
 
+## Running the demo
+
+Governance and elasticity need opposite request sizes and cannot be shown well in the
+same run. Do them as two segments — which also tells a cleaner story: first who is
+allowed how much, then what happens when that is not enough.
+
+### Segment 1 — tiers and rate limiting
+
+| Setting | Value |
+|---|---|
+| Prompt | Short |
+| Rate | 3/s |
+| Users | all |
+
+The Free tier hits its 1k/min ceiling about **16 seconds** in and its three nodes turn
+red together, which is the point: the limit belongs to the subscription, not the person.
+Pro follows later, Max never does. Over 90 seconds the throughput ladder is plain —
+roughly 40, 100 and 256 successful requests for Free, Pro and Max.
+
+While traffic runs, change the Free tier's token limit in the RHOAI dashboard under
+**Settings → MaaS governance**. The UI picks it up live through a Kubernetes watch, and
+the whole Free cohort moves at once.
+
+### Segment 2 — KV pressure and autoscaling
+
+| Setting | Value |
+|---|---|
+| Prompt | Unique prefix, ~1500 tokens |
+| Rate | **1/s** |
+| Users | Max tier only (user7-9) |
+
+KV cache crosses 80% at around **40 seconds** and the queue climbs gently — 0, then 8,
+then 25 — at which point the autoscaler adds a replica. The new pod takes 5-10 minutes
+to pull images and load, so start this segment early if you want the second replica on
+screen.
+
+Max tier only, because a 1500-token prompt exceeds the Free tier's entire 1000/min
+allowance in a single request; the others would simply sit at 429 and show nothing.
+
+**Rate matters more than it looks.** The constraint is token throughput, and one A10G
+running Qwen3 saturates a little below 1/s at this prompt size. At 2/s the queue reaches
+343 and climbs; at 4/s with 4000-token prompts it reaches 461 and essentially everything
+times out at the client's 30s deadline. That is not a fault, it is a queue growing faster
+than it drains, and it looks like a broken system rather than a busy one. Trading length
+for frequency does not help either: 750 tokens at 2/s moves the same tokens per second
+but queues faster, because each request carries its own fixed scheduling cost.
+
+### Showing cache-aware routing
+
+Set the prompt shape to **Shared prefix** with two or more replicas running. Every
+request then carries an identical preamble, so the prefix cache hits and the endpoint
+picker concentrates traffic on whichever replica is already warm. Switch to **Unique
+prefix** and that advantage disappears — the same hardware, the same load, only the
+cacheability of the prompt has changed.
+
 ## Development
 
 ```bash

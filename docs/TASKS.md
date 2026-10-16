@@ -9,12 +9,6 @@ Status key: `[ ]` todo · `[~]` in progress · `[?]` blocked on a decision · `[
 
 ## Open
 
-- [ ] **T6 · A "unique long prefix" traffic pattern.** Now a prerequisite, not a nicety.
-  With the pressure signal corrected (T5), short repeated prompts at 3/s will never
-  queue, so **the autoscaling demo cannot be shown at all until this exists**. Needs
-  prompts long enough to fill KV cache and distinct enough to miss the prefix cache.
-  Pairs with T7: the same pattern is what makes cache-hit colouring move.
-
 - [ ] **T18 · `Premature close` on external models.** Seen in the live feed during the
   user's manual test, against `gpt-4.1-nano`, affecting several identities at once.
   Could not be reproduced afterwards: 5 sequential and 12 concurrent calls all returned
@@ -89,6 +83,23 @@ Status key: `[ ]` todo · `[~]` in progress · `[?]` blocked on a decision · `[
 ---
 
 ## Done 2026-10-16
+
+- [x] **T6 · Long-prompt shapes, and the rate that actually works.** `short`,
+  `shared-prefix` and `unique-prefix`, on an axis separate from the traffic pattern.
+  Measured on one A10G: 1500 tokens at **1/s** is the demo setting — KV crosses 80% at
+  ~40s, the queue climbs 0 → 8 → 25 and autoscaling fires for a real reason. 2/s reaches
+  343 and runs away; 4/s with 4000 tokens reaches 461 and everything times out. The
+  constraint is token throughput but not linearly: 750 tokens at 2/s moves the same
+  tokens and queues four times deeper, so length cannot be traded for frequency.
+  Documented as two demo segments in the README, because rate limiting and autoscaling
+  need opposite request sizes.
+- [x] **Authorino scaled to three replicas**, which removed the ServiceAccount
+  TokenReview bottleneck completely (4/s went from ~30% rejected to zero; 8/s from ~52%
+  to zero) and let the generator's ceiling go back to 10/s. Captured in the chart as a
+  post-install hook since Kuadrant owns the CR and exposes no setting for it.
+- [x] **Max tier raised to 800k tokens/min** so long-context runs are not throttled by
+  the tier whose purpose is not to throttle.
+- [x] **Live feed wording for 401/403** no longer claims an API key is invalid.
 
 - [x] **T3 · GPU taint moved into both MachineSet templates.** It used to be applied by
   hand to running nodes and was therefore lost on every rebuild — on 2026-10-15 all
