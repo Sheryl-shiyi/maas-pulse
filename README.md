@@ -293,6 +293,46 @@ For manual OIDC setup without Helm, use `scripts/setup-oidc.sh`.
 
 > **Note**: If using only external models (e.g., Gemini), no GPU is required.
 
+#### Both GPU types are mandatory for the internal models
+
+The two internal models are pinned to specific accelerators with `nodeSelector`
+(`nvidia.com/gpu.product: NVIDIA-L40S` and `NVIDIA-A10G`), so a cluster with only one of
+them leaves the other model permanently `Pending`. The reference cluster uses AWS
+`g6e.2xlarge` for the L40S and `g5.4xlarge` for the A10G. To run on different hardware,
+change `nodeSelector` under `models` in `charts/maas-pulse/values.yaml`.
+
+There is **no CPU or simulator fallback** today, so the project cannot be tried without
+GPUs. That is a known gap.
+
+Allow **two** A10G nodes rather than one if you want to demonstrate autoscaling: Qwen3
+scales to a second replica and needs somewhere to put it.
+
+#### FP8 on A10G works, despite advice to the contrary
+
+Other Red Hat MaaS material warns against running FP8 models on `g5` / A10G, on the
+grounds that FP8 needs compute capability >= 8.0. A10G is Ampere at 8.6, so it clears
+that bar; what it lacks is *native* FP8 hardware, which Ada and Hopper have. vLLM falls
+back to Marlin kernels, and `qwen3-8b-fp8` has run on A10G throughout this project.
+Treat the warning as being about peak throughput, not about whether it runs.
+
+#### GPU node taints and tolerations
+
+GPU nodes carry `nvidia.com/gpu=:NoSchedule` so that ordinary workloads do not land on
+expensive hardware. Every model pod in this chart declares the matching toleration
+(`tolerations` per model in `values.yaml`), so the taint is optional from the models'
+point of view — removing it costs money and noisy neighbours, not availability.
+
+The taint belongs in the MachineSet, at `spec.template.spec.taints`, not applied by hand
+to running nodes. Applied by hand it is lost every time the nodes are recreated, which
+on this project happens daily; see `docs/reference/gpu-machineset-taint.yaml` for the
+patch and the reasoning.
+
+#### First start is slow
+
+The modelcar and vLLM images come to roughly 25 GB per model. On a freshly created node
+expect **5-10 minutes** from pod scheduling to a model answering requests, most of it
+image pull. A pod sitting in `Init` during that window is normal.
+
 ### Minimum software requirements
 
 - OpenShift Container Platform 4.19+

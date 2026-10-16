@@ -23,9 +23,19 @@ Status key: `[ ]` todo · `[~]` in progress · `[?]` blocked on a decision · `[
   automatic retry for external models, since this class of error is retryable and an
   audience should never see it.
 
-- [ ] **T3 · Taint the GPU MachineSets.** `docs/reference/gpu-machineset-taint.yaml` is
-  written and committed but **not applied**. Only affects machines created afterwards,
-  so the next GPU rebuild picks it up.
+- [ ] **T21 · Does the A10G / FP8 warning actually matter for us?** Other Red Hat MaaS
+  material says not to run FP8 on `g5` / A10G. A10G is Ampere at compute capability 8.6
+  so it clears the stated >= 8.0 bar, and `qwen3-8b-fp8` has run on it throughout — but
+  it has no *native* FP8 hardware, so vLLM falls back to Marlin kernels. Worth measuring
+  what that costs in throughput and latency, and deciding whether the demo should move
+  Qwen3 to an Ada or Hopper instance. Benchmark before changing anything; the current
+  setup works.
+
+- [ ] **T22 · A GPU-free path, modelled on rhoai-maas-guide.** They ship two models that
+  need no GPU: `ghcr.io/llm-d/llm-d-inference-sim` and CPU vLLM
+  (`registry.redhat.io/rhaiis/vllm-cpu-rhel9` with `VLLM_CPU_KVCACHE_SPACE=4`). We
+  require an L40S *and* an A10G, so nobody can try this project without both. That is
+  the single biggest barrier to anyone else using it.
 
 - [ ] **T9 · Limitador has no persistence.** The chargeback "all" view loses history
   whenever Limitador restarts. Either add Redis or switch the query to `increase()`.
@@ -58,6 +68,14 @@ Status key: `[ ]` todo · `[~]` in progress · `[?]` blocked on a decision · `[
 - [ ] **T20 · Retire the old `admin` and `user` subscriptions** once the tiers have been
   demoed successfully. Kept for now so the migration can be rolled back.
 
+- [ ] **T23 · Where should skill assets live? Decide after the project, not now.** The
+  `gpu-session` skill sits at `.claude/skills/gpu-session/SKILL.md`, which is gitignored,
+  so it exists only on this machine — lost on a new laptop and invisible to anyone who
+  clones the repo. The user has deliberately chosen not to put it in this project. The
+  open question is the general one: where do skills that encode a project's operational
+  knowledge belong, given that `.claude/` is personal config and the repo is a
+  deliverable. Revisit once the project wraps up.
+
 ## Waiting on the user
 
 - [ ] **T15 · The user's own unbuilt demo feature ideas.** Raised 2026-10-13, still not
@@ -69,6 +87,22 @@ Status key: `[ ]` todo · `[~]` in progress · `[?]` blocked on a decision · `[
   story can be told from the measured numbers. The user has not weighed in.
 
 ---
+
+## Done 2026-10-16
+
+- [x] **T3 · GPU taint moved into both MachineSet templates.** It used to be applied by
+  hand to running nodes and was therefore lost on every rebuild — on 2026-10-15 all
+  three nodes came back with none. Patched before scaling up, so this restore is itself
+  the acceptance test.
+- [x] **T12 · `gpu-session` skill**, project-level at
+  `.claude/skills/gpu-session/SKILL.md`. Ends a session by scaling both MachineSets to
+  0; starts one by resetting Qwen3 to 1 replica *first*, scaling up, then handing the
+  15-50 minute wait to a subagent so the main thread keeps working. It **verifies** the
+  taint rather than reapplying it, so a MachineSet regression surfaces instead of being
+  papered over.
+- [x] **README hardware section** — both GPU types mandatory and why, the A10G/FP8
+  warning and why we disagree with it, the taint and toleration contract, first-start
+  timings, and the absence of a GPU-free path as a stated gap.
 
 ## Done 2026-10-15
 
