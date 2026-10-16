@@ -55,22 +55,25 @@ subscriptions:
         - limit: 10000
           window: 1m
   max:
+    # Sized for long-context work rather than chat. A 1500-token prompt at the
+    # generator's 4/s cap spread over three users is already 120k tokens/min, and the
+    # point of this tier is that it does not hit a ceiling during a demo.
     displayName: Max tier
     priority: 30
     serviceAccountNamespace: maas-tier-max
     serviceAccounts: [user7, user8, user9]
     tokenRateLimits:
       nemotron-3-nano-30b-a3b:
-        - limit: 50000
+        - limit: 800000
           window: 1m
       qwen3-8b-fp8:
-        - limit: 50000
+        - limit: 800000
           window: 1m
       "gemini-3.1-flash-lite":
-        - limit: 50000
+        - limit: 800000
           window: 1m
       "gpt-4.1-nano":
-        - limit: 50000
+        - limit: 800000
           window: 1m
   admin:
     displayName: MaaS Admins
@@ -281,7 +284,7 @@ trafficUI:
   # Every list below is positional and must stay the same length and order.
   userNames: "admin,user1,user2,user3,user4,user5,user6,user7,user8,user9"
   userDisplayNames: "Admin,Free 1,Free 2,Free 3,Pro 1,Pro 2,Pro 3,Max 1,Max 2,Max 3"
-  userRateLimits: "100k/min,1k/min,1k/min,1k/min,10k/min,10k/min,10k/min,50k/min,50k/min,50k/min"
+  userRateLimits: "100k/min,1k/min,1k/min,1k/min,10k/min,10k/min,10k/min,800k/min,800k/min,800k/min"
   # Only used for users WITHOUT a ServiceAccount; for the rest the group is derived
   # from the SA namespace, so the subscription and the user list cannot disagree.
   userGroups: "admin,,,,,,,,,"
