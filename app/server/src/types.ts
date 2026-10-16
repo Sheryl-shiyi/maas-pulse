@@ -17,6 +17,8 @@ export interface UserInfo {
   tier?: string;
 }
 
+import type { PromptShape } from './questions.js';
+
 export type ModelStatus = 'healthy' | 'busy' | 'overloaded';
 export type TrafficPattern = 'concurrent' | 'sequential' | 'random_burst';
 
@@ -35,7 +37,7 @@ export type ServerEvent =
   | { type: 'traffic_stopped' };
 
 export type ClientEvent =
-  | { type: 'start_traffic'; pattern: TrafficPattern; usersEnabled: string[]; modelsEnabled: string[]; ratePerSecond: number }
+  | { type: 'start_traffic'; pattern: TrafficPattern; usersEnabled: string[]; modelsEnabled: string[]; ratePerSecond: number; promptShape?: PromptShape; promptTokens?: number }
   | { type: 'stop_traffic' };
 
 export interface TrafficConfig {
@@ -43,6 +45,10 @@ export interface TrafficConfig {
   usersEnabled: string[];
   modelsEnabled: string[];
   ratePerSecond: number;
+  /** How much context each request carries; see PromptShape in questions.ts. */
+  promptShape: PromptShape;
+  /** Approximate prompt length in tokens for the two long shapes. */
+  promptTokens: number;
 }
 
 export interface AppConfig {

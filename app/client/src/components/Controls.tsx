@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { TrafficPattern, ModelInfo, UserInfo, ClientEvent } from '../types';
+import type { TrafficPattern, PromptShape, ModelInfo, UserInfo, ClientEvent } from '../types';
 
 interface ControlsProps {
   models: ModelInfo[];
@@ -12,6 +12,7 @@ interface ControlsProps {
 export function Controls({ models, users, trafficRunning, connected, send }: ControlsProps) {
   const [pattern, setPattern] = useState<TrafficPattern>('concurrent');
   const [rate, setRate] = useState(3);
+  const [promptShape, setPromptShape] = useState<PromptShape>('short');
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
 
@@ -34,6 +35,7 @@ export function Controls({ models, users, trafficRunning, connected, send }: Con
       usersEnabled: selectedUsers.length > 0 ? selectedUsers : users.map(u => u.name),
       modelsEnabled: selectedModels.length > 0 ? selectedModels : models.map(m => m.name),
       ratePerSecond: rate,
+      promptShape,
     });
   };
 
@@ -67,6 +69,25 @@ export function Controls({ models, users, trafficRunning, connected, send }: Con
             <option value="concurrent">Concurrent</option>
             <option value="sequential">Sequential</option>
             <option value="random_burst">Random Burst</option>
+          </select>
+        </div>
+
+        <div style={styles.group}>
+          <label style={styles.label}>Prompt</label>
+          <select
+            value={promptShape}
+            onChange={e => setPromptShape(e.target.value as PromptShape)}
+            style={styles.select}
+            disabled={trafficRunning}
+            title={
+              'Short: the question alone, cheap and highly cacheable.\n' +
+              'Shared prefix: one long preamble reused by every request, so the prefix cache hits.\n' +
+              'Unique prefix: a long preamble distinct per request — the only shape that creates real queueing and KV pressure, and so the only one that can trigger autoscaling. It also burns a tier\u2019s token budget in a request or two.'
+            }
+          >
+            <option value="short">Short</option>
+            <option value="shared-prefix">Shared prefix (cache hits)</option>
+            <option value="unique-prefix">Unique prefix (real load)</option>
           </select>
         </div>
 

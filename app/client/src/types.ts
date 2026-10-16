@@ -13,6 +13,7 @@ export interface UserInfo {
 }
 
 export type ModelStatus = 'healthy' | 'busy' | 'overloaded';
+export type PromptShape = 'short' | 'shared-prefix' | 'unique-prefix';
 export type TrafficPattern = 'concurrent' | 'sequential' | 'random_burst';
 
 export type ServerEvent =
@@ -29,7 +30,7 @@ export type ServerEvent =
   | { type: 'traffic_stopped' };
 
 export type ClientEvent =
-  | { type: 'start_traffic'; pattern: TrafficPattern; usersEnabled: string[]; modelsEnabled: string[]; ratePerSecond: number }
+  | { type: 'start_traffic'; pattern: TrafficPattern; usersEnabled: string[]; modelsEnabled: string[]; ratePerSecond: number; promptShape?: PromptShape; promptTokens?: number }
   | { type: 'stop_traffic' };
 
 export interface ActiveRequest {

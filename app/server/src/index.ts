@@ -28,6 +28,25 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  */
 const MAX_RATE_PER_SECOND = 4;
 
+/**
+ * Prompt length for the long shapes, in approximate tokens.
+ *
+ * Long prompts are the only way to create real back-pressure now that scaling reacts to
+ * queue depth and KV cache rather than batch occupancy. They also consume the caller's
+ * token budget far faster: at 1500 tokens a single request exceeds the Free tier's
+ * whole 1000/min allowance, so a long-prompt run is a Max-tier or admin exercise unless
+ * you want to watch everyone else sit at 429.
+ */
+const DEFAULT_PROMPT_TOKENS = 1500;
+const MIN_PROMPT_TOKENS = 200;
+const MAX_PROMPT_TOKENS = 8000;
+
+function clampPromptTokens(n: unknown): number {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return DEFAULT_PROMPT_TOKENS;
+  return Math.min(Math.max(Math.round(v), MIN_PROMPT_TOKENS), MAX_PROMPT_TOKENS);
+}
+
 function loadConfig(): AppConfig {
   const maasGatewayUrl = process.env['MAAS_GATEWAY_URL'] || 'https://maas.apps.cluster.example.com';
   const prometheusUrl = process.env['PROMETHEUS_URL'] || '';
@@ -101,12 +120,15 @@ app.post('/api/traffic/start', (req, res) => {
     return;
   }
 
-  const { pattern = 'concurrent', usersEnabled, modelsEnabled, ratePerSecond = 1 } = req.body;
+  const { pattern = 'concurrent', usersEnabled, modelsEnabled, ratePerSecond = 1,
+          promptShape = 'short', promptTokens = DEFAULT_PROMPT_TOKENS } = req.body;
   startTraffic({
     pattern,
     usersEnabled: usersEnabled || config.users.filter(u => u.apiKey || u.serviceAccount).map(u => u.name),
     modelsEnabled: modelsEnabled || config.models.map(m => m.name),
     ratePerSecond: Math.min(Math.max(ratePerSecond, 0.1), MAX_RATE_PER_SECOND),
+    promptShape,
+    promptTokens: clampPromptTokens(promptTokens),
   });
 
   res.json({ status: 'started' });
@@ -175,6 +197,8 @@ setClientMessageHandler((event: ClientEvent) => {
           usersEnabled: event.usersEnabled,
           modelsEnabled: event.modelsEnabled,
           ratePerSecond: Math.min(Math.max(event.ratePerSecond, 0.1), MAX_RATE_PER_SECOND),
+          promptShape: event.promptShape ?? 'short',
+          promptTokens: clampPromptTokens(event.promptTokens ?? DEFAULT_PROMPT_TOKENS),
         });
       }
       break;

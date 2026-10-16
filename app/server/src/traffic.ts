@@ -2,11 +2,14 @@ import { randomUUID } from 'crypto';
 import { setMaxListeners } from 'events';
 import { broadcast } from './ws.js';
 import { sendInference } from './maas-client.js';
-import { getRandomQuestion } from './questions.js';
+import { buildPrompt, type PromptShape } from './questions.js';
 import type { TrafficConfig } from './types.js';
 
 let running = false;
 let abortController: AbortController | null = null;
+/** Prompt shape of the run in progress, read by fireRequest. */
+let activeShape: PromptShape = 'short';
+let activePromptTokens = 0;
 const pending = new Set<Promise<void>>();
 const rateLimitedUntil = new Map<string, number>();
 const DEFAULT_COOLDOWN_MS = 60_000;
@@ -39,11 +42,17 @@ export async function startTraffic(config: TrafficConfig) {
     return;
   }
   running = true;
+  activeShape = config.promptShape;
+  activePromptTokens = config.promptTokens;
   abortController = new AbortController();
   setMaxListeners(100, abortController.signal);
 
   broadcast({ type: 'traffic_started', pattern: config.pattern });
-  console.log(`[traffic] started: pattern=${config.pattern}, rate=${config.ratePerSecond}/s, users=${config.usersEnabled.join(',')}, models=${config.modelsEnabled.join(',')}`);
+  console.log(
+    `[traffic] started: pattern=${config.pattern}, rate=${config.ratePerSecond}/s,` +
+    ` prompt=${config.promptShape}${config.promptShape === 'short' ? '' : `(~${config.promptTokens} tok)`},` +
+    ` users=${config.usersEnabled.join(',')}, models=${config.modelsEnabled.join(',')}`,
+  );
 
   try {
     switch (config.pattern) {
@@ -113,7 +122,7 @@ async function fireRequest(user: string, model: string, signal: AbortSignal) {
   if (signal.aborted || isModelCoolingDown(user, model)) return;
 
   const requestId = randomUUID();
-  const question = getRandomQuestion();
+  const question = buildPrompt(activeShape, activePromptTokens);
 
   try {
     broadcast({ type: 'request_start', requestId, user, model, question });

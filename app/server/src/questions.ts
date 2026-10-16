@@ -58,3 +58,83 @@ export function getRandomQuestion(): string {
 export function getQuestionPool(): string[] {
   return [...QUESTIONS];
 }
+
+/**
+ * How much context each generated request carries. Orthogonal to the traffic pattern,
+ * which only decides timing.
+ *
+ * - `short`         the question on its own. Cheap, and every user asks from the same
+ *                   small pool, so the prefix cache hits constantly.
+ * - `shared-prefix` one long preamble, identical for every request, then the question.
+ *                   Maximises prefix cache reuse, which is what makes cache-aware
+ *                   routing worth having — and what makes a per-replica cache hit rate
+ *                   move on screen.
+ * - `unique-prefix` a long preamble unique to each request. Nothing to reuse, so every
+ *                   request pays full prefill and occupies KV cache of its own. This is
+ *                   the only shape that produces genuine back-pressure, and therefore
+ *                   the only one that can demonstrate autoscaling now that scaling
+ *                   reacts to queue depth and KV usage rather than batch occupancy.
+ */
+export type PromptShape = 'short' | 'shared-prefix' | 'unique-prefix';
+
+/** Roughly four characters per token for English prose. */
+const CHARS_PER_TOKEN = 4;
+
+/**
+ * Sentences with enough variety that a preamble built from them tokenises like real
+ * prose rather than like repeated filler, which would compress and defeat the point.
+ */
+const CORPUS = [
+  'The service mesh terminates TLS at the gateway and forwards the decrypted request to the selected backend.',
+  'Capacity planning for inference differs from stateless web serving because the key-value cache dominates memory.',
+  'A rolling upgrade drains each node in turn, waiting for in-flight requests to complete before eviction.',
+  'Token budgets are enforced per subscription and reset on a sliding window rather than at a fixed hour.',
+  'The scheduler scores every candidate replica and routes to the one with the warmest matching prefix.',
+  'Observability data is sampled at the gateway, aggregated per tenant, and retained for ninety days.',
+  'Quantised weights reduce the memory footprint but shift some of the cost into dequantisation at runtime.',
+  'When the batch cannot grow further, additional requests wait in a queue and latency rises sharply.',
+  'Cold replicas serve their first requests slowly because no prefix of the prompt is cached yet.',
+  'Egress to an external provider is proxied so that credentials never leave the cluster boundary.',
+  'Audit records link every inference call back to the identity that issued it and the policy that allowed it.',
+  'Throughput and tail latency pull in opposite directions once the accelerator is saturated.',
+  'A request that exceeds its token allowance is rejected before it reaches the model server.',
+  'Model weights are distributed as container images so that the usual registry controls apply.',
+  'Autoscaling on concurrency alone is misleading, because a healthy batch looks identical to a backlog.',
+];
+
+/** Deterministic PRNG, so a given seed always rebuilds the identical preamble. */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function buildPreamble(seed: number, approxTokens: number): string {
+  const rand = mulberry32(seed);
+  const target = approxTokens * CHARS_PER_TOKEN;
+  const parts: string[] = [];
+  let length = 0;
+  while (length < target) {
+    const sentence = CORPUS[Math.floor(rand() * CORPUS.length)]!;
+    parts.push(sentence);
+    length += sentence.length + 1;
+  }
+  return parts.join(' ');
+}
+
+/** Fixed seed: every caller gets byte-identical text, so the prefix cache can hit. */
+const SHARED_SEED = 0x5ea5ed;
+let uniqueCounter = 0;
+
+export function buildPrompt(shape: PromptShape, approxPrefixTokens: number): string {
+  const question = getRandomQuestion();
+  if (shape === 'short') return question;
+
+  const seed = shape === 'shared-prefix' ? SHARED_SEED : (Date.now() ^ (uniqueCounter++ << 16)) >>> 0;
+  const preamble = buildPreamble(seed, approxPrefixTokens);
+  return `${preamble}\n\nGiven the context above, answer: ${question}`;
+}
