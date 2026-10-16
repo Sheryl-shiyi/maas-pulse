@@ -111,6 +111,18 @@ subscriptions:
           window: 1m
 
 modelsNamespace: llm
+
+monitoring:
+  # How often Prometheus scrapes the vLLM pods. KServe's generated PodMonitors set no
+  # interval, so they inherit the cluster default of 30s — long enough that the UI,
+  # which polls every 3s, shows the same figures ten times and then jumps. At 5s the
+  # queue depth and batch size visibly climb instead. Measured: over a 60s window, 13
+  # samples held 9-11 distinct values at 5s against 3 at the default.
+  #
+  # The cost is six times the samples from these pods only. Set to null to leave
+  # whatever KServe generated alone.
+  vllmScrapeInterval: 5s
+
 # Authorino validates every ServiceAccount token with a TokenReview, and one replica
 # rate limits itself doing it: ~30% of calls rejected at 4 requests/s, ~52% at 8/s.
 # Three replicas removed it completely. Applied by a post-install hook because the

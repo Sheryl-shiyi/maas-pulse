@@ -1,0 +1,99 @@
+{{- if .Values.monitoring.vllmScrapeInterval }}
+{{/*
+The vLLM PodMonitors KServe generates carry no `interval`, so they inherit the cluster
+default of 30 seconds. The UI polls Prometheus every 3 seconds, which means it reads the
+same sample about ten times and then sees it jump — a replica appears to go from 0 to 25
+in-flight requests in one frame, and the queue never looks like it is growing because
+every intermediate value was never recorded.
+
+There are two PodMonitors selecting the same pods, and only one of them matters here:
+`kserve-llm-isvc-vllm-engine` relabels `__name__` to `kserve_<name>`, so it produces
+`kserve_vllm:num_requests_running`. The series the UI reads comes from the `-default`
+one. Both are patched so the two views of the same pods stay consistent.
+
+A patch job rather than chart resources because KServe creates these and we only want to
+change one field. KServe does not reconcile `interval` back, so it sticks; it is
+reapplied on every upgrade in case a KServe upgrade recreates them.
+*/}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: patch-podmonitor-interval
+  namespace: {{ .Values.modelsNamespace }}
+  labels:
+    {{- include "maas-pulse.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: patch-podmonitor-interval
+  namespace: {{ .Values.modelsNamespace }}
+  labels:
+    {{- include "maas-pulse.labels" . | nindent 4 }}
+rules:
+- apiGroups: ["monitoring.coreos.com"]
+  resources: ["podmonitors"]
+  verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: patch-podmonitor-interval
+  namespace: {{ .Values.modelsNamespace }}
+  labels:
+    {{- include "maas-pulse.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: patch-podmonitor-interval
+subjects:
+  - kind: ServiceAccount
+    name: patch-podmonitor-interval
+    namespace: {{ .Values.modelsNamespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: patch-podmonitor-interval
+  namespace: {{ .Values.modelsNamespace }}
+  labels:
+    {{- include "maas-pulse.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 4
+  template:
+    spec:
+      serviceAccount: patch-podmonitor-interval
+      serviceAccountName: patch-podmonitor-interval
+      restartPolicy: Never
+      containers:
+      - name: patch
+        image: {{ .Values.global.toolsImage }}
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/bash
+        - -ec
+        - |
+          # On a fresh install KServe may not have generated them yet. Wait, but do not
+          # fail the release over a scrape interval.
+          for attempt in $(seq 1 30); do
+            found=$(oc get podmonitor -n {{ .Values.modelsNamespace }} \
+              -l app.kubernetes.io/part-of=llminferenceservice \
+              -o name 2>/dev/null || true)
+            [ -n "$found" ] && break
+            sleep 10
+          done
+          if [ -z "$found" ]; then
+            echo "no vLLM PodMonitor appeared; leaving the scrape interval alone"
+            exit 0
+          fi
+          for pm in $found; do
+            echo "setting interval={{ .Values.monitoring.vllmScrapeInterval }} on $pm"
+            oc patch "$pm" -n {{ .Values.modelsNamespace }} --type=json \
+              -p '[{"op":"replace","path":"/spec/podMetricsEndpoints/0/interval","value":"{{ .Values.monitoring.vllmScrapeInterval }}"}]' \
+            || oc patch "$pm" -n {{ .Values.modelsNamespace }} --type=json \
+              -p '[{"op":"add","path":"/spec/podMetricsEndpoints/0/interval","value":"{{ .Values.monitoring.vllmScrapeInterval }}"}]'
+          done
+{{- end }}
