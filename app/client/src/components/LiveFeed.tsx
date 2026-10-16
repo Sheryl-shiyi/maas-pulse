@@ -36,7 +36,7 @@ export function LiveFeed({ entries }: LiveFeedProps) {
             {entry.error && (
               <div style={styles.rateLimitMsg}>
                 {entry.status === 403 || entry.status === 401
-                  ? 'Rejected by the gateway — the API key is not valid'
+                  ? 'Rejected by the gateway — this identity was not accepted'
                   : entry.error}
               </div>
             )}

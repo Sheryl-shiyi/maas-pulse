@@ -1,0 +1,77 @@
+{{- if .Values.authorino.replicas }}
+{{/*
+Authorino is on the request path for every call, and with ServiceAccount identities it
+validates each one with a TokenReview against the API server. A single replica rate
+limits itself doing that: measured at 4 requests/s, ~30% of calls came back 401, and at
+8/s it was ~52%, while the one API-key identity never failed. Three replicas removed it
+entirely — 1380 requests at 8/s with zero failures.
+
+This has to be a patch job rather than a chart resource because the Authorino CR is
+created and owned by the Kuadrant operator, and Kuadrant's own CRD exposes nothing for
+it (spec.components covers only developerPortal). Kuadrant does not reconcile the field
+back, so patching it sticks.
+*/}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: patch-authorino-replicas
+  namespace: kuadrant-system
+  labels:
+    {{- include "maas-pulse.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: patch-authorino-replicas
+  namespace: kuadrant-system
+  labels:
+    {{- include "maas-pulse.labels" . | nindent 4 }}
+rules:
+- apiGroups: ["operator.authorino.kuadrant.io"]
+  resources: ["authorinos"]
+  verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: patch-authorino-replicas
+  namespace: kuadrant-system
+  labels:
+    {{- include "maas-pulse.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: patch-authorino-replicas
+subjects:
+  - kind: ServiceAccount
+    name: patch-authorino-replicas
+    namespace: kuadrant-system
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: patch-authorino-replicas
+  namespace: kuadrant-system
+  labels:
+    {{- include "maas-pulse.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 4
+  template:
+    spec:
+      serviceAccount: patch-authorino-replicas
+      serviceAccountName: patch-authorino-replicas
+      restartPolicy: Never
+      containers:
+      - name: patch
+        image: {{ .Values.global.toolsImage }}
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/bash
+        - -exc
+        - |
+          oc patch authorino authorino -n kuadrant-system --type merge \
+            -p '{"spec":{"replicas":{{ .Values.authorino.replicas }}}}'
+{{- end }}

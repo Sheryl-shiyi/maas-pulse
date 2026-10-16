@@ -111,6 +111,14 @@ subscriptions:
           window: 1m
 
 modelsNamespace: llm
+# Authorino validates every ServiceAccount token with a TokenReview, and one replica
+# rate limits itself doing it: ~30% of calls rejected at 4 requests/s, ~52% at 8/s.
+# Three replicas removed it completely. Applied by a post-install hook because the
+# Authorino CR belongs to the Kuadrant operator and Kuadrant exposes no setting for it.
+# Set to null to leave the operator's default alone.
+authorino:
+  replicas: 3
+
 defaultServingImage: registry.redhat.io/rhaii/vllm-cuda-rhel9:3.4.0
 
 # llm-d Endpoint Picker (EPP) scheduling profile.

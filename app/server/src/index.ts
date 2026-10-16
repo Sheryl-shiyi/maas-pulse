@@ -19,14 +19,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /**
  * Ceiling for generated traffic.
  *
- * Lowered from 10 after measuring what happens above it. ServiceAccount identities are
- * validated by a TokenReview call per request, and past roughly 3/s a growing share of
- * those come back rejected: 0% failures at 2/s, ~30% at 4/s, ~52% at 8/s, while the one
- * API-key identity never failed at any rate. A wall of 401s reads as a broken system and
- * drowns out the rate limiting the demo is actually about, which is visible within ~16s
- * at 3/s anyway.
+ * Briefly lowered to 4 when ServiceAccount identities turned out to fail under load —
+ * 0% rejected at 2/s, ~30% at 4/s, ~52% at 8/s — while the one API-key identity never
+ * did. The cause was Authorino validating every SA token with a TokenReview call and
+ * being rate limited doing it, one replica deep. Running three Authorino replicas
+ * removed it outright: the same 4/s run went from ~30% rejected to 879 requests and
+ * zero failures, so the ceiling is back where it was.
  */
-const MAX_RATE_PER_SECOND = 4;
+const MAX_RATE_PER_SECOND = 10;
 
 /**
  * Prompt length for the long shapes, in approximate tokens.
