@@ -33,7 +33,7 @@ subscriptions:
       "gemini-3.1-flash-lite":
         - limit: 1000
           window: 1m
-      "gpt-4.1-nano":
+      "gpt-5.4-nano":
         - limit: 1000
           window: 1m
   pro:
@@ -51,7 +51,7 @@ subscriptions:
       "gemini-3.1-flash-lite":
         - limit: 10000
           window: 1m
-      "gpt-4.1-nano":
+      "gpt-5.4-nano":
         - limit: 10000
           window: 1m
   max:
@@ -72,7 +72,7 @@ subscriptions:
       "gemini-3.1-flash-lite":
         - limit: 800000
           window: 1m
-      "gpt-4.1-nano":
+      "gpt-5.4-nano":
         - limit: 800000
           window: 1m
   admin:
@@ -89,7 +89,7 @@ subscriptions:
       "gemini-3.1-flash-lite":
         - limit: 100000
           window: 1m
-      "gpt-4.1-nano":
+      "gpt-5.4-nano":
         - limit: 100000
           window: 1m
   user:
@@ -106,7 +106,7 @@ subscriptions:
       "gemini-3.1-flash-lite":
         - limit: 5000
           window: 1m
-      "gpt-4.1-nano":
+      "gpt-5.4-nano":
         - limit: 5000
           window: 1m
 
@@ -308,8 +308,8 @@ trafficUI:
   # maas-pulse-ui service account token mounted in the pod (bound to
   # cluster-monitoring-view) — no separate token secret is needed.
   prometheusUrl: ""
-  modelNames: "publishers/llm/models/nemotron-3-nano-30b-a3b,publishers/llm/models/qwen3-8b-fp8,gemini-3.1-flash-lite,gpt-4.1-nano"
-  modelDisplayNames: "Nemotron 30B,Qwen3 8B,Gemini Flash,GPT-4.1 Nano"
+  modelNames: "publishers/llm/models/nemotron-3-nano-30b-a3b,publishers/llm/models/qwen3-8b-fp8,gemini-3.1-flash-lite,gpt-5.4-nano"
+  modelDisplayNames: "Nemotron 30B,Qwen3 8B,Gemini Flash,GPT-5.4 Nano"
   modelTypes: "internal,internal,external,external"
   # The demo cohort: one admin plus nine users spread across three subscription tiers.
   # Every list below is positional and must stay the same length and order.
@@ -351,7 +351,7 @@ oidc:
     - nemotron-3-nano-30b-a3b
     - qwen3-8b-fp8
     - gemini-3.1-flash-lite
-    - gpt-4.1-nano
+    - gpt-5.4-nano
   users:
     - username: maas-user
       email: maas-user@example.com
@@ -385,7 +385,7 @@ oidc:
           tokenRateLimits:
             - limit: 2000
               window: 1m
-        - name: gpt-4.1-nano
+        - name: gpt-5.4-nano
           tokenRateLimits:
             - limit: 2000
               window: 1m
@@ -405,7 +405,7 @@ oidc:
           tokenRateLimits:
             - limit: 100000
               window: 1m
-        - name: gpt-4.1-nano
+        - name: gpt-5.4-nano
           tokenRateLimits:
             - limit: 100000
               window: 1m
@@ -427,10 +427,10 @@ externalModels:
     path: /v1beta/openai/chat/completions
     apiKey: REPLACE_WITH_YOUR_GEMINI_API_KEY
 
-  - name: gpt-4.1-nano
+  - name: gpt-5.4-nano
     provider: openai
     endpoint: api.openai.com
-    targetModel: gpt-4.1-nano
+    targetModel: gpt-5.4-nano
     apiFormat: openai-chat
     path: /v1/chat/completions
     apiKey: REPLACE_WITH_YOUR_OPENAI_API_KEY

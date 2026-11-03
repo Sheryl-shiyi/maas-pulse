@@ -32,7 +32,7 @@ maas-pulse deploys a multi-model MaaS environment on OpenShift AI 3.5 with built
 
 Organizations adopting AI need visibility into how their models are being consumed: which teams use which models, how much capacity is being utilized, and where latency bottlenecks occur. maas-pulse addresses this by combining OpenShift AI's Models-as-a-Service infrastructure with a telemetry pipeline that captures per-user, per-model, and per-subscription metrics.
 
-The deployment includes two internal models (NVIDIA Nemotron 3 Nano 30B and Qwen3-8B) served via vLLM on dedicated GPUs, plus external models (Google Gemini 3.1 Flash Lite and OpenAI GPT-4.1 Nano) proxied through the MaaS inference gateway with automatic credential injection. Multi-tenant access control is managed through MaaSSubscription and MaaSAuthPolicy resources, with Keycloak providing user authentication via OpenShift OAuth.
+The deployment includes two internal models (NVIDIA Nemotron 3 Nano 30B and Qwen3-8B) served via vLLM on dedicated GPUs, plus external models (Google Gemini 3.1 Flash Lite and OpenAI GPT-5.4 Nano) proxied through the MaaS inference gateway with automatic credential injection. Multi-tenant access control is managed through MaaSSubscription and MaaSAuthPolicy resources, with Keycloak providing user authentication via OpenShift OAuth.
 
 Istio Telemetry and Kuadrant TelemetryPolicy capture request-level metrics (latency, model, user, subscription, organization) and export them to Prometheus. A Grafana instance (deployed separately) can query these metrics to build dashboards for usage attribution, cost center tracking, and performance monitoring.
 
@@ -68,7 +68,7 @@ graph LR
                 end
                 subgraph ExternalModels["External Models (Proxied)"]
                     M3["Gemini Flash Lite<br/>via ExternalProvider"]
-                    M4["GPT-4.1 Nano<br/>via ExternalProvider"]
+                    M4["GPT-5.4 Nano<br/>via ExternalProvider"]
                 end
             end
         end
@@ -545,7 +545,7 @@ npm run build
 is spelled differently by every system that reports it — `publishers/llm/models/qwen3-8b-fp8`
 from the MaaS API, `qwen3-8b-fp8` from vLLM metrics, `llm/qwen3-8b-fp8-kserve-route` from
 Kuadrant, `gemini-3.1-flash-lite` vs `gemini-3-1-flash-lite` for external models,
-`gpt-4.1-nano-2025-04-14` from OpenAI — and anything that joins those sources has to fold
+`gpt-5.4-nano-2026-03-17` from OpenAI — and anything that joins those sources has to fold
 them together first. The test fixtures are real label values read off the cluster.
 
 GitHub Actions runs the same commands on every push and pull request, plus a

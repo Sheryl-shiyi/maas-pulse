@@ -31,7 +31,7 @@ const DEFAULT_RATES: Record<string, { inputPer1M: number; outputPer1M: number }>
   'nemotron-3-nano-30b-a3b': { inputPer1M: 0.20, outputPer1M: 0.20 },
   'qwen3-8b-fp8': { inputPer1M: 0.10, outputPer1M: 0.10 },
   'gemini-3.1-flash-lite': { inputPer1M: 0.075, outputPer1M: 0.30 },
-  'gpt-4.1-nano': { inputPer1M: 0.10, outputPer1M: 0.40 },
+  'gpt-5.4-nano': { inputPer1M: 0.20, outputPer1M: 1.25 },
 };
 
 let modelRatesConfig: Record<string, { inputPer1M: number; outputPer1M: number }> = { ...DEFAULT_RATES };

@@ -58,6 +58,11 @@ function buildClient(bearer: string): OpenAI {
     // queued on the pod.
     maxRetries: 0,
     httpAgent: agent,
+    // Ask for an uncompressed body. External providers honour the SDK's default
+    // `gzip, deflate, br`; the gateway's token-counting filter then cannot read `usage`
+    // out of the compressed bytes and never ends the response (T18). Measured: 9 of 9
+    // compressed responses hung until the client timed out, 0 of 9 uncompressed ones.
+    defaultHeaders: { 'Accept-Encoding': 'identity' },
   });
 }
 
@@ -137,7 +142,9 @@ export async function sendInference(user: string, model: string, question: strin
     const { data: completion, response: rawResponse } = await client.chat.completions.create({
       model,
       messages: [{ role: 'user', content: question }],
-      max_tokens: 100,
+      // Not `max_tokens`: OpenAI's GPT-5 models reject it with a 400, and the gateway
+      // holds a 400 open until the client times out (T18). vLLM and Gemini accept both.
+      max_completion_tokens: 100,
     }, { signal }).withResponse();
 
     const latencyMs = Math.round(performance.now() - start);

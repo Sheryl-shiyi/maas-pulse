@@ -6,7 +6,7 @@
  *   Kuadrant namespace     llm/qwen3-8b-fp8-kserve-route
  *   external model CR      gemini-3.1-flash-lite      (dots)
  *   ExternalProvider       gemini-3-1-flash-lite      ($safeName, dashes)
- *   OpenAI response        gpt-4.1-nano-2025-04-14    (date suffix)
+ *   OpenAI response        gpt-5.4-nano-2026-03-17    (date suffix)
  *
  * Anything that joins data across those sources has to fold them back to one
  * canonical name first, or the same model shows up as two rows. These helpers

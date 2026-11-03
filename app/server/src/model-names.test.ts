@@ -15,7 +15,7 @@ const KNOWN = [
   'nemotron-3-nano-30b-a3b',
   'qwen3-8b-fp8',
   'gemini-3.1-flash-lite',
-  'gpt-4.1-nano',
+  'gpt-5.4-nano',
 ];
 
 describe('stripMaasPrefix', () => {
@@ -32,7 +32,7 @@ describe('stripMaasPrefix', () => {
 
   it('leaves external model names alone — they carry no prefix', () => {
     assert.equal(stripMaasPrefix('gemini-3.1-flash-lite'), 'gemini-3.1-flash-lite');
-    assert.equal(stripMaasPrefix('gpt-4.1-nano'), 'gpt-4.1-nano');
+    assert.equal(stripMaasPrefix('gpt-5.4-nano'), 'gpt-5.4-nano');
   });
 });
 
@@ -45,7 +45,7 @@ describe('normalizeModelName', () => {
   });
 
   it('folds the dated model id OpenAI returns back onto the base name', () => {
-    assert.equal(normalizeModelName('gpt-4.1-nano-2025-04-14', KNOWN), 'gpt-4.1-nano');
+    assert.equal(normalizeModelName('gpt-5.4-nano-2026-03-17', KNOWN), 'gpt-5.4-nano');
   });
 
   it('folds the dashed $safeName spelling back onto the dotted name', () => {
@@ -67,7 +67,7 @@ describe('extractModelFromNamespace', () => {
   const cases: Array<[string, string]> = [
     ['llm/qwen3-8b-fp8-kserve-route', 'qwen3-8b-fp8'],
     ['llm/nemotron-3-nano-30b-a3b-kserve-route', 'nemotron-3-nano-30b-a3b'],
-    ['llm/gpt-4.1-nano', 'gpt-4.1-nano'],
+    ['llm/gpt-5.4-nano', 'gpt-5.4-nano'],
     ['llm/gemini-3.1-flash-lite', 'gemini-3.1-flash-lite'],
     ['llm/gemini-3-1-flash-lite', 'gemini-3.1-flash-lite'],
   ];
@@ -90,8 +90,8 @@ describe('extractModelFromNamespace', () => {
 describe('resolveModel', () => {
   it('prefers the model label when the series has one (authorized_hits)', () => {
     assert.equal(
-      resolveModel({ user: 'admin', model: 'gpt-4.1-nano-2025-04-14', value: 82 }, KNOWN),
-      'gpt-4.1-nano',
+      resolveModel({ user: 'admin', model: 'gpt-5.4-nano-2026-03-17', value: 82 }, KNOWN),
+      'gpt-5.4-nano',
     );
   });
 
@@ -104,8 +104,8 @@ describe('resolveModel', () => {
 
   it('ignores an empty model label rather than reporting an empty model', () => {
     assert.equal(
-      resolveModel({ model: '', limitador_namespace: 'llm/gpt-4.1-nano' }, KNOWN),
-      'gpt-4.1-nano',
+      resolveModel({ model: '', limitador_namespace: 'llm/gpt-5.4-nano' }, KNOWN),
+      'gpt-5.4-nano',
     );
   });
 
