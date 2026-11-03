@@ -12,10 +12,13 @@ spec:
       labels:
         model: responseBodyJSON("/model")
         user: auth.identity.userid
-        # Subscription metadata for usage attribution and billing
         subscription: auth.identity.selected_subscription
-        organization_id: auth.identity.subscription_info.organizationId
-        cost_center: auth.identity.subscription_info.costCenter
+        # Every label must resolve for every identity. organization_id and cost_center
+        # read subscription_info fields no subscription sets, and from RHCL 1.4 the wasm
+        # shim treats the unresolved key as a failed task and holds every response open,
+        # internal models included. Nothing read either label.
+        # RHCL 1.4.4 also does not propagate edits to this policy into the gateway; to
+        # change the labels, delete the policy and let the next upgrade recreate it.
   targetRef:
     group: gateway.networking.k8s.io
     kind: Gateway

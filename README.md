@@ -338,7 +338,7 @@ image pull. A pod sitting in `Init` during that window is normal.
 ### Minimum software requirements
 
 - OpenShift Container Platform 4.19+
-- Red Hat OpenShift AI 3.5 (operator `rhods-operator.3.5.0`)
+- Red Hat OpenShift AI 3.5 (operator `rhods-operator.3.5.2`) and Red Hat Connectivity Link 1.4.4 (channel `stable-1.4`)
 - Helm CLI 3.12+
 - `oc` CLI 4.14+
 

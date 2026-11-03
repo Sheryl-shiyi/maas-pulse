@@ -81,16 +81,20 @@ install-operators:
       channel: stable-3.5
       namespace: redhat-ods-operator
       installPlanApproval: Manual
-      startingCSV: rhods-operator.3.5.0
+      startingCSV: rhods-operator.3.5.2
       operatorGroup:
         enabled: true
 
+    # 1.4.4 is the first RHCL whose wasm shim (0.14.3) stops holding responses open when
+    # it cannot read token usage: upstream errors and compressed bodies used to hang until
+    # the client gave up. It is only in `stable-1.4`; the head of `stable` is 1.4.3,
+    # which still has the bug. RHOAI 3.5 requires RHCL 1.4.x, and 1.3 is end of life.
     rhcl-operator:
       enabled: true
-      channel: stable
+      channel: stable-1.4
       namespace: kuadrant-system
       installPlanApproval: Manual
-      startingCSV: rhcl-operator.v1.3.4
+      startingCSV: rhcl-operator.v1.4.4
       operatorGroup:
         enabled: true
 
