@@ -127,6 +127,13 @@ else
   else
     pass "telemetry labels resolve: ${labels:-none}"
   fi
+  # RHOAIENG-71638: at the 200ms default, slow authentication under load is denied as 500/503.
+  auth_timeout=$(echo "$ef" | jq -r '[.. | strings | select(startswith("{") and contains("\"services\""))][0] | fromjson | .services["auth-service"].timeout // "unknown"' 2>/dev/null || echo unknown)
+  case "$auth_timeout" in
+    200ms) warn "wasm auth timeout is the 200ms default: set AUTH_SERVICE_TIMEOUT on the RHCL Subscription (RHOAIENG-71638)" ;;
+    unknown) warn "could not read the wasm auth timeout" ;;
+    *) pass "wasm auth timeout $auth_timeout" ;;
+  esac
 fi
 
 # The AWS NAT drops TCP flows idle for 350s; pooled connections kept longer fail with 503.

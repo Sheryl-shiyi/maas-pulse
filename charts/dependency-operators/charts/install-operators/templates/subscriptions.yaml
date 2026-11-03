@@ -17,5 +17,9 @@ spec:
   {{- with $config.startingCSV }}
   startingCSV: {{ . }}
   {{- end }}
+  {{- with $config.config }}
+  config:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 {{- end }}
 {{- end }}

@@ -95,6 +95,13 @@ install-operators:
       namespace: kuadrant-system
       installPlanApproval: Manual
       startingCSV: rhcl-operator.v1.4.4
+      # RHOAIENG-71638: the gateway's wasm plugin gives Authorino 200ms to authenticate a
+      # request and denies it on timeout, so a slow TokenReview under load becomes a 500
+      # or 503 even with healthy models. 2s is the value in the RHOAI 3.5 known issue.
+      config:
+        env:
+          - name: AUTH_SERVICE_TIMEOUT
+            value: "2s"
       operatorGroup:
         enabled: true
 

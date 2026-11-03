@@ -465,6 +465,7 @@ gateway. On the platform side:
 
 - RHCL is at least 1.4.4.
 - Kuadrant is Ready, and the Authorino serving cert exists.
+- The wasm auth timeout has been raised from its 200ms default (only a warning if not).
 - The gateway has its 2Gi memory limit.
 - The telemetry labels resolve.
 - The external-provider connections close before the AWS NAT's 350s idle timeout.
