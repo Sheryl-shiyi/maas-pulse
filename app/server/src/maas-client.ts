@@ -2,6 +2,7 @@ import https from 'https';
 import OpenAI from 'openai';
 import type { UserInfo } from './types.js';
 import { getIdentityToken, type IdentityRef } from './sa-token.js';
+import { parseRequestParams, paramsFor, type RequestParams } from './request-params.js';
 
 const clients = new Map<string, OpenAI>();
 /** Users whose bearer is a minted ServiceAccount token rather than a stored key. */
@@ -11,12 +12,17 @@ const clientTokens = new Map<string, string>();
 
 let agent: https.Agent;
 let baseUrl = '';
+let requestParams: RequestParams = {};
 
 export function initMaasClients(gatewayUrl: string, users: UserInfo[]) {
   clients.clear();
   identities.clear();
   clientTokens.clear();
   baseUrl = `${gatewayUrl}/v1`;
+  requestParams = parseRequestParams(process.env['MODEL_REQUEST_PARAMS']);
+  for (const [model, params] of Object.entries(requestParams)) {
+    console.log(`[maas] extra request fields for ${model}: ${JSON.stringify(params)}`);
+  }
   agent = new https.Agent({ keepAlive: false, rejectUnauthorized: false });
 
   let saCount = 0;
@@ -140,6 +146,8 @@ export async function sendInference(user: string, model: string, question: strin
   console.log(`[maas] ${user} → ${model}: sending request...`);
   try {
     const { data: completion, response: rawResponse } = await client.chat.completions.create({
+      // Per-model extras first, so they can never override the fields below.
+      ...(paramsFor(model, requestParams) as Partial<OpenAI.Chat.ChatCompletionCreateParamsNonStreaming>),
       model,
       messages: [{ role: 'user', content: question }],
       // Not `max_tokens`: OpenAI's GPT-5 models reject it with a 400, and the gateway

@@ -33,6 +33,8 @@ subscriptions:
       "gemini-3.1-flash-lite":
         - limit: 1000
           window: 1m
+      # GPT is paid per token, so its quotas are far below the self-hosted models' in
+      # every tier: the tier limit is what caps the bill if a run is left going.
       "gpt-5.4-nano":
         - limit: 1000
           window: 1m
@@ -52,7 +54,7 @@ subscriptions:
         - limit: 10000
           window: 1m
       "gpt-5.4-nano":
-        - limit: 10000
+        - limit: 5000
           window: 1m
   max:
     # Sized for long-context work rather than chat. A 1500-token prompt at the
@@ -73,7 +75,7 @@ subscriptions:
         - limit: 800000
           window: 1m
       "gpt-5.4-nano":
-        - limit: 800000
+        - limit: 20000
           window: 1m
   admin:
     displayName: MaaS Admins
@@ -311,6 +313,15 @@ trafficUI:
   modelNames: "publishers/llm/models/nemotron-3-nano-30b-a3b,publishers/llm/models/qwen3-8b-fp8,gemini-3.1-flash-lite,gpt-5.4-nano"
   modelDisplayNames: "Nemotron 30B,Qwen3 8B,Gemini Flash,GPT-5.4 Nano"
   modelTypes: "internal,internal,external,external"
+  # Extra request body fields per model, sent by the traffic generator, keyed by the
+  # model name it sends. Empty by default. Example for a reasoning model:
+  #   modelRequestParams:
+  #     gpt-5-nano:
+  #       reasoning_effort: minimal
+  # gpt-5-nano was tried and dropped: even with "minimal" it spent the whole 100-token
+  # budget reasoning on every question in the generator's pool, returning an empty
+  # answer that was still billed.
+  modelRequestParams: {}
   # The demo cohort: one admin plus nine users spread across three subscription tiers.
   # Every list below is positional and must stay the same length and order.
   userNames: "admin,user1,user2,user3,user4,user5,user6,user7,user8,user9"

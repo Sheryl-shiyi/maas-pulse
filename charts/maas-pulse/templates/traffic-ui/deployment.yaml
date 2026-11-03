@@ -45,6 +45,8 @@ spec:
               value: {{ .Values.trafficUI.modelDisplayNames | default "" | quote }}
             - name: MODEL_TYPES
               value: {{ .Values.trafficUI.modelTypes | default "" | quote }}
+            - name: MODEL_REQUEST_PARAMS
+              value: {{ .Values.trafficUI.modelRequestParams | default dict | toJson | quote }}
             - name: USER_NAMES
               value: {{ .Values.trafficUI.userNames | default "admin,user1,user2,user3,user4,user5" | quote }}
             - name: USER_DISPLAY_NAMES
