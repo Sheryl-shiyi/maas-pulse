@@ -449,8 +449,31 @@ echo $MAAS_URL
 curl -s "$MAAS_URL/v1/chat/completions" \
   -H "Authorization: Bearer YOUR_MAAS_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"model": "qwen3-8b-fp8", "messages": [{"role": "user", "content": "Say hello in one word."}], "max_tokens": 10}'
+  -d '{"model": "publishers/llm/models/qwen3-8b-fp8", "messages": [{"role": "user", "content": "Say hello in one word."}], "max_tokens": 10}'
 ```
+
+Internal models need their full name as `/v1/models` lists it; external models use their
+plain name (`gpt-5.4-nano`, `gemini-3.1-flash-lite`).
+
+4. Run the end-to-end check:
+```bash
+./scripts/verify-deployment.sh            # about ten calls to the paid OpenAI model
+./scripts/verify-deployment.sh --skip-paid
+```
+It checks the platform settings the demo depends on and sends real traffic through the
+gateway. On the platform side:
+
+- RHCL is at least 1.4.4.
+- Kuadrant is Ready, and the Authorino serving cert exists.
+- The gateway has its 2Gi memory limit.
+- The telemetry labels resolve.
+- The external-provider connections close before the AWS NAT's 350s idle timeout.
+
+On the traffic side, it calls each kind of model once, with no retries. It confirms the
+Free tier is rate limited, an upstream 400 returns at once, and compressed responses
+complete. Each of these is a failure that has actually happened on this platform. The
+script exits non-zero if any check fails. Internal-model checks are skipped when the GPUs
+are scaled down.
 
 ### Delete
 
@@ -601,6 +624,7 @@ nowhere on the cluster) and a Helm lint and render.
 │   └── reference/test-model-access.yaml   # Standalone model endpoint test pod
 ├── scripts/
 │   ├── setup-oidc.sh                      # Standalone OIDC setup (no Helm required)
+│   ├── verify-deployment.sh               # End-to-end platform and traffic checks
 │   └── realm-import-standalone.yaml       # Portable Keycloak realm definition
 └── README.md
 ```
