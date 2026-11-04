@@ -34,6 +34,11 @@ dataScienceCluster:
       managementState: Managed
     llamastackoperator:
       managementState: Managed
+    # Workbenches (Jupyter/code-server in a project). Not needed by MaaS itself, but a
+    # DataScienceCluster v2 treats any component it does not list as Removed, so leaving
+    # this out hid Workbenches from the RHOAI dashboard altogether.
+    workbenches:
+      managementState: Managed
 
 # used for MaaS
 postgresCluster:
