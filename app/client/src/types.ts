@@ -34,7 +34,8 @@ export type ServerEvent =
   | { type: 'config'; models: ModelInfo[]; users: UserInfo[]; trafficRunning: boolean }
   | { type: 'request_start'; requestId: string; user: string; model: string; question: string }
   | { type: 'request_complete'; requestId: string; user: string; model: string; latencyMs: number; tokensUsed: number; answer: string }
-  | { type: 'rate_limited'; requestId: string; user: string; model: string }
+  /** `source`: the MaaS gateway's own limit, or the external provider's (Google's quota). */
+  | { type: 'rate_limited'; requestId: string; user: string; model: string; source?: LimitSource; message?: string }
   | { type: 'request_error'; requestId: string; user: string; model: string; error: string; status?: number }
   | { type: 'model_status'; model: string; runningRequests: number; queuedRequests: number; latencyP95Ms: number; kvCachePercent: number; status: ModelStatus; replicas: ReplicaStatus[] }
   | { type: 'rate_limit_reset'; user: string; model: string }
@@ -55,7 +56,15 @@ export interface ActiveRequest {
   startTime: number;
   phase: 'to_gateway' | 'to_model' | 'returning';
   progress: number;
+  /** Set when the gateway turned the request away, at which of its stages: the dot then
+   *  bounces back from the gateway instead of going on to a model. */
+  rejectedAt?: GatewayStage;
 }
+
+export type LimitSource = 'gateway' | 'provider';
+
+/** The checks the MaaS gateway applies to every request, in order. */
+export type GatewayStage = 'auth' | 'access' | 'limit' | 'route' | 'meter';
 
 export interface FeedEntry {
   id: string;
@@ -67,6 +76,9 @@ export interface FeedEntry {
   tokensUsed: number;
   timestamp: number;
   rateLimited?: boolean;
+  /** A 429 from the external provider (e.g. Google's quota), not from MaaS. */
+  providerLimited?: boolean;
+  providerMessage?: string;
   error?: string;
   status?: number;
 }
@@ -94,15 +106,22 @@ export interface UserState {
   rateLimit: string;
   tier?: string;
   rateLimits: Record<string, string>;
-  rateLimitedModels: Record<string, boolean>;
+  /** Models this user is paused on, and who imposed the pause. */
+  rateLimitedModels: Record<string, LimitSource>;
   activeRequests: number;
 }
 
 export interface Stats {
   totalRequests: number;
   completedRequests: number;
+  /** 429s from the MaaS gateway's own token limits. */
   rateLimitedRequests: number;
   errorRequests: number;
+  /** Turned away by the gateway: 401 (not authenticated), 403 (no access to the model). */
+  authRejected: number;
+  accessDenied: number;
+  /** Passed every check and was sent on to a model, whatever the model then answered. */
+  routedRequests: number;
   totalTokens: number;
   avgLatencyMs: number;
 }

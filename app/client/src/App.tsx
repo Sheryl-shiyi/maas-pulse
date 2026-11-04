@@ -6,12 +6,14 @@ import { LiveFeed } from './components/LiveFeed';
 import { MetricsPanel } from './components/MetricsPanel';
 import { ChargebackView } from './components/ChargebackView';
 import { OidcView } from './components/OidcView';
-import type { ServerEvent, ModelInfo, UserInfo, ModelState, UserState, ActiveRequest, FeedEntry, Stats } from './types';
+import type { ServerEvent, ModelInfo, UserInfo, ModelState, UserState, ActiveRequest, FeedEntry, Stats, GatewayStage } from './types';
 
 type ViewTab = 'traffic' | 'cost' | 'oidc';
 
 const MAX_FEED = 50;
 const MAX_PARTICLES = 100;
+/** How long a dot takes from a user to the gateway, and again on the way back. */
+const SEGMENT_MS = 800;
 
 function initialModelState(info: ModelInfo): ModelState {
   return { ...info, status: 'healthy', runningRequests: 0, queuedRequests: 0, latencyP95Ms: 0, kvCachePercent: 0, replicas: 1, desiredReplicas: 1, replicaStats: [] };
@@ -34,9 +36,38 @@ export default function App() {
   const activeRequestsRef = useRef<ActiveRequest[]>([]);
   const usersRef = useRef<UserState[]>([]);
   const [feed, setFeed] = useState<FeedEntry[]>([]);
-  const [stats, setStats] = useState<Stats>({ totalRequests: 0, completedRequests: 0, rateLimitedRequests: 0, errorRequests: 0, totalTokens: 0, avgLatencyMs: 0 });
+  const [stats, setStats] = useState<Stats>({
+    totalRequests: 0, completedRequests: 0, rateLimitedRequests: 0, errorRequests: 0,
+    authRejected: 0, accessDenied: 0, routedRequests: 0, totalTokens: 0, avgLatencyMs: 0,
+  });
+  /** When each gateway stage last acted, on the performance.now() clock, so the topology
+   *  can light that stage up. A ref, not state: it changes on every request and is only
+   *  read by the canvas loop. */
+  const gatewayFlash = useRef<Record<GatewayStage, number>>({ auth: 0, access: 0, limit: 0, route: 0, meter: 0 });
   const [trafficRunning, setTrafficRunning] = useState(false);
   const latencySamples = useRef<number[]>([]);
+
+  /** The gateway stopped this request at `stage`: its dot finishes the trip to the
+   *  gateway, then bounces back, and the stage lights up when the dot arrives. */
+  const rejectAt = (requestId: string, stage: GatewayStage, dropAlso?: (r: ActiveRequest) => boolean) => {
+    const req = activeRequestsRef.current.find(r => r.requestId === requestId);
+    const now = performance.now();
+    gatewayFlash.current[stage] = req ? Math.max(now, req.startTime + SEGMENT_MS) : now;
+    setActiveRequests(prev => {
+      const next = prev.flatMap(r =>
+        r.requestId === requestId ? [{ ...r, rejectedAt: stage }] : dropAlso?.(r) ? [] : [r]);
+      activeRequestsRef.current = next;
+      return next;
+    });
+    const remaining = req ? Math.max(0, req.startTime + 2 * SEGMENT_MS - now) : 0;
+    setTimeout(() => {
+      setActiveRequests(prev => {
+        const next = prev.filter(r => r.requestId !== requestId);
+        activeRequestsRef.current = next;
+        return next;
+      });
+    }, remaining + 30);
+  };
 
   const handleEvent = useCallback((event: ServerEvent) => {
     switch (event.type) {
@@ -76,12 +107,20 @@ export default function App() {
           activeRequestsRef.current = next;
           return next;
         });
-        // Phase transitions: to_gateway → to_model after 800ms
+        // Phase transitions: to_gateway → to_model once the dot reaches the gateway,
+        // unless the gateway has turned it away in the meantime.
         setTimeout(() => {
-          setActiveRequests(prev => prev.map(r =>
-            r.requestId === event.requestId ? { ...r, phase: 'to_model' as const, startTime: performance.now() } : r
-          ));
-        }, 800);
+          const req = activeRequestsRef.current.find(r => r.requestId === event.requestId);
+          if (!req || req.rejectedAt) return;
+          gatewayFlash.current.route = performance.now();
+          setActiveRequests(prev => {
+            const next = prev.map(r =>
+              r.requestId === event.requestId && !r.rejectedAt ? { ...r, phase: 'to_model' as const, startTime: performance.now() } : r
+            );
+            activeRequestsRef.current = next;
+            return next;
+          });
+        }, SEGMENT_MS);
         break;
       }
 
@@ -93,9 +132,11 @@ export default function App() {
         setStats(s => ({
           ...s,
           completedRequests: s.completedRequests + 1,
+          routedRequests: s.routedRequests + 1,
           totalTokens: s.totalTokens + event.tokensUsed,
           avgLatencyMs: avgLatency,
         }));
+        gatewayFlash.current.meter = performance.now();
         setUsers(prev => prev.map(u =>
           u.name === event.user ? { ...u, activeRequests: Math.max(0, u.activeRequests - 1) } : u
         ));
@@ -128,23 +169,33 @@ export default function App() {
       case 'rate_limited': {
         // Same ordering trap as request_error: capture before the removal below.
         const limitedQuestion = activeRequestsRef.current.find(r => r.requestId === event.requestId)?.question || '';
-        setStats(s => ({ ...s, rateLimitedRequests: s.rateLimitedRequests + 1 }));
+        const source = event.source ?? 'gateway';
+        const sameUserModel = (r: ActiveRequest) => r.user === event.user && r.model === event.model;
+        // Only the gateway's own 429 is a MaaS rate limit. A provider's (Google's free
+        // quota) reached the model and failed there, so it counts as an upstream error.
+        setStats(s => source === 'gateway'
+          ? { ...s, rateLimitedRequests: s.rateLimitedRequests + 1 }
+          : { ...s, errorRequests: s.errorRequests + 1, routedRequests: s.routedRequests + 1 });
         setUsers(prev => {
           const next = prev.map(u =>
             u.name === event.user ? {
               ...u,
-              rateLimitedModels: { ...u.rateLimitedModels, [event.model]: true },
+              rateLimitedModels: { ...u.rateLimitedModels, [event.model]: source },
               activeRequests: Math.max(0, u.activeRequests - 1),
             } : u
           );
           usersRef.current = next;
           return next;
         });
-        setActiveRequests(prev => {
-          const next = prev.filter(r => !(r.user === event.user && r.model === event.model));
-          activeRequestsRef.current = next;
-          return next;
-        });
+        if (source === 'gateway') {
+          rejectAt(event.requestId, 'limit', sameUserModel);
+        } else {
+          setActiveRequests(prev => {
+            const next = prev.filter(r => !sameUserModel(r));
+            activeRequestsRef.current = next;
+            return next;
+          });
+        }
         setFeed(prev => [{
           id: event.requestId,
           user: event.user,
@@ -154,7 +205,9 @@ export default function App() {
           latencyMs: 0,
           tokensUsed: 0,
           timestamp: Date.now(),
-          rateLimited: true,
+          rateLimited: source === 'gateway',
+          providerLimited: source === 'provider',
+          providerMessage: event.message,
         }, ...prev].slice(0, MAX_FEED));
         break;
       }
@@ -187,15 +240,28 @@ export default function App() {
         // which defers removal, this removes synchronously, so looking it up
         // afterwards always missed and the feed showed an empty "Q:".
         const question = activeRequestsRef.current.find(r => r.requestId === event.requestId)?.question || '';
-        setStats(s => ({ ...s, errorRequests: s.errorRequests + 1 }));
+        // 401: the gateway could not authenticate the caller. 403: authenticated, but
+        // no subscription gives it this model. Anything else got past the gateway.
+        const stage: GatewayStage | null = event.status === 401 ? 'auth' : event.status === 403 ? 'access' : null;
+        setStats(s => ({
+          ...s,
+          errorRequests: s.errorRequests + 1,
+          authRejected: s.authRejected + (stage === 'auth' ? 1 : 0),
+          accessDenied: s.accessDenied + (stage === 'access' ? 1 : 0),
+          routedRequests: s.routedRequests + (stage ? 0 : 1),
+        }));
         setUsers(prev => prev.map(u =>
           u.name === event.user ? { ...u, activeRequests: Math.max(0, u.activeRequests - 1) } : u
         ));
-        setActiveRequests(prev => {
-          const next = prev.filter(r => r.requestId !== event.requestId);
-          activeRequestsRef.current = next;
-          return next;
-        });
+        if (stage) {
+          rejectAt(event.requestId, stage);
+        } else {
+          setActiveRequests(prev => {
+            const next = prev.filter(r => r.requestId !== event.requestId);
+            activeRequestsRef.current = next;
+            return next;
+          });
+        }
         setFeed(prev => [{
           id: event.requestId,
           user: event.user,
@@ -284,7 +350,7 @@ export default function App() {
           />
           <div style={styles.main}>
             <div style={styles.topologyArea}>
-              <Topology users={users} models={models} activeRequests={activeRequests} />
+              <Topology users={users} models={models} activeRequests={activeRequests} stats={stats} gatewayFlash={gatewayFlash.current} />
             </div>
             <div style={styles.sidebar}>
               <LiveFeed entries={feed} users={users} models={models} />

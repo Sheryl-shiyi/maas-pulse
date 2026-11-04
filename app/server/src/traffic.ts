@@ -157,8 +157,9 @@ async function fireRequest(user: string, model: string, signal: AbortSignal) {
     if (result.rateLimited) {
       const cooldownMs = result.retryAfterMs || DEFAULT_COOLDOWN_MS;
       rateLimitedUntil.set(cooldownKey(user, model), Date.now() + cooldownMs);
-      broadcast({ type: 'rate_limited', requestId, user, model });
-      console.log(`[traffic] ${user} rate-limited on ${model}, pausing for ${Math.round(cooldownMs / 1000)}s`);
+      const source = result.limitedBy ?? 'gateway';
+      broadcast({ type: 'rate_limited', requestId, user, model, source, message: result.providerMessage });
+      console.log(`[traffic] ${user} rate-limited on ${model} by the ${source}, pausing for ${Math.round(cooldownMs / 1000)}s`);
     } else if (result.error) {
       broadcast({ type: 'request_error', requestId, user, model, error: result.error, status: result.status });
     } else {

@@ -1,10 +1,10 @@
 import { useRef, useEffect, useCallback } from 'react';
-import type { ModelState, UserState, ActiveRequest } from '../types';
+import type { ModelState, UserState, ActiveRequest, Stats, GatewayStage } from '../types';
 import { providerOf, providerLabel, drawProviderLogo } from './providerLogos';
 
 const USER_COLORS = ['#42a5f5', '#66bb6a', '#ffa726', '#ab47bc', '#ef5350', '#26c6da', '#ec407a', '#8d6e63'];
 const STATUS_COLORS: Record<string, string> = { healthy: '#4caf50', busy: '#ff9800', overloaded: '#f44336' };
-const RATE_LIMITED_COLOR = '#333333';
+const RATE_LIMITED_COLOR = '#475569';
 const QUEUE_COLOR = '#ef4444';
 const CACHE_COLOR = '#38bdf8';
 /**
@@ -14,6 +14,11 @@ const CACHE_COLOR = '#38bdf8';
  */
 const EXTERNAL_COLOR = '#4f46e5';
 const CAPTION_COLOR = 'rgba(148, 163, 184, 0.85)';
+const GATEWAY_COLOR = '#ff9800';
+/** MaaS refused the request: its own token limit, authentication or access. */
+const BLOCKED_COLOR = '#ef4444';
+/** The provider behind an external model refused it (Google's quota), not MaaS. */
+const PROVIDER_LIMIT_COLOR = '#f59e0b';
 
 /**
  * Full scale for the load bar, in requests.
@@ -36,67 +41,129 @@ const LOAD_BAR_SCALE = 50;
  */
 const BAR_EASING = 0.12;
 
+/** Matches SEGMENT_MS in App.tsx: one leg of a dot's trip. */
+const SEGMENT_MS = 800;
+
+/**
+ * What the MaaS gateway does to every request, in the order it does it. Drawn as the
+ * gateway itself, so an audience sees a policy pipeline rather than an orange shape: a
+ * stage lights up when it acts, and the ones that can refuse a request count refusals.
+ */
+const STAGES: { key: GatewayStage; title: string; detail: string; refuses: boolean }[] = [
+  { key: 'auth', title: 'Authenticate', detail: 'API key · token · OIDC', refuses: true },
+  { key: 'access', title: 'Subscription', detail: 'tier → models & limits', refuses: true },
+  { key: 'limit', title: 'Token limits', detail: 'tokens / min per user', refuses: true },
+  { key: 'route', title: 'Route by model', detail: 'llm-d · provider keys', refuses: false },
+  { key: 'meter', title: 'Meter usage', detail: '→ Cost & Chargeback', refuses: false },
+];
+
 interface TopologyProps {
   users: UserState[];
   models: ModelState[];
   activeRequests: ActiveRequest[];
+  stats: Stats;
+  /** When each gateway stage last acted (performance.now()), owned by App. */
+  gatewayFlash: Record<GatewayStage, number>;
 }
 
-export function Topology({ users, models, activeRequests }: TopologyProps) {
+/** One subscription tier: its shared limits on top, then one compact row per user. */
+interface Band {
+  label: string;
+  /** Spacing, smaller in compact mode when the canvas is short. */
+  pad: number; headerH: number; limitRowH: number;
+  x: number; y: number; w: number; h: number;
+  members: number[];
+  limitsY: number;
+  /** Centre of the first user row; row n is at firstRowY + n * rowH. */
+  firstRowY: number;
+  rowH: number;
+}
+
+interface Rect { x: number; y: number; w: number; h: number }
+
+const GATEWAY_HEADER_H = 34;
+/** Height a model box needs below it for the load and cache bars. */
+const BARS_H = 44;
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, v));
+}
+
+export function Topology({ users, models, activeRequests, stats, gatewayFlash }: TopologyProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animRef = useRef<number>(0);
-  const propsRef = useRef({ users, models, activeRequests });
-  propsRef.current = { users, models, activeRequests };
+  const propsRef = useRef({ users, models, activeRequests, stats, gatewayFlash });
+  propsRef.current = { users, models, activeRequests, stats, gatewayFlash };
   /** Eased bar values per replica, keyed `<model>#<replicaIdx>`, so each one keeps its
    *  own animation across frames and across re-layouts. */
   const barsRef = useRef(new Map<string, { running: number; queued: number; cache: number }>());
 
   const getLayout = useCallback((w: number, h: number) => {
-    const userX = w * 0.13;
-    const gatewayX = w * 0.48;
-    const modelX = w * 0.84;
-    const gatewayY = h * 0.5;
-
-    // Users are laid out in tier bands rather than one even column, so that a limit
-    // change made against a subscription visibly moves a whole cohort at once. Users
-    // with no tier (the admin) form their own band at the top.
+    // Users are grouped by subscription tier, because limits belong to the tier: every
+    // member of a tier has the same ones. So each tier shows its limits once, and its
+    // users are compact rows. One card per user repeated the same four numbers ten
+    // times and, on a laptop-height screen, the cards and circles overlapped.
     const tierOrder: string[] = [];
     for (const u of users) {
       const key = u.tier || '';
       if (!tierOrder.includes(key)) tierOrder.push(key);
     }
-    const GAP = 18;
-    const usable = h - GAP * (tierOrder.length - 1);
-    const userPositions: { x: number; y: number }[] = new Array(users.length);
-    const tierBands: { tier: string; top: number; bottom: number }[] = [];
+    const bandX = 14;
+    const bandW = clamp(w * 0.22, 200, 250);
+    const limitRows = Math.ceil(Math.max(models.length, 1) / 2);
+    const gaps = Math.max(tierOrder.length - 1, 0);
+    const sizeFor = (pad: number, headerH: number, limitRowH: number, gap: number) => {
+      const bandFixed = pad * 2 + headerH + limitRows * limitRowH + 4;
+      return { pad, headerH, limitRowH, gap, bandFixed, fixed: tierOrder.length * bandFixed + gap * gaps };
+    };
+    // Compact spacing when the roomy one would leave users less than 22px each, as on a
+    // laptop whose controls bar has wrapped onto a second line.
+    const roomy = sizeFor(8, 16, 13, 10);
+    const sz = h - 16 - roomy.fixed >= users.length * 22 ? roomy : sizeFor(5, 13, 11, 6);
+    const BAND_PAD = sz.pad, BAND_HEADER_H = sz.headerH, LIMIT_ROW_H = sz.limitRowH, BAND_GAP = sz.gap;
+    const bandFixed = sz.bandFixed;
+    const fixed = sz.fixed;
+    const rowH = users.length > 0 ? clamp((h - 16 - fixed) / users.length, 16, 40) : 24;
+    const total = fixed + rowH * users.length;
 
-    let cursor = 0;
+    const userPositions: { y: number; anchorX: number }[] = new Array(users.length);
+    const bands: Band[] = [];
+    let cursor = Math.max(8, (h - total) / 2);
     for (const tier of tierOrder) {
-      const members = users
-        .map((u, i) => ({ u, i }))
-        .filter(({ u }) => (u.tier || '') === tier);
-      const bandHeight = (usable * members.length) / users.length;
-      members.forEach(({ i }, n) => {
-        userPositions[i] = { x: userX, y: cursor + (bandHeight * (n + 1)) / (members.length + 1) };
+      const members = users.map((u, i) => ({ u, i })).filter(({ u }) => (u.tier || '') === tier).map(({ i }) => i);
+      const bandH = bandFixed + rowH * members.length;
+      const firstRowY = cursor + BAND_PAD + BAND_HEADER_H + limitRows * LIMIT_ROW_H + 4 + rowH / 2;
+      members.forEach((i, n) => {
+        userPositions[i] = { y: firstRowY + rowH * n, anchorX: bandX + bandW };
       });
-      if (tier) tierBands.push({ tier, top: cursor, bottom: cursor + bandHeight });
-      cursor += bandHeight + GAP;
+      const label = tier
+        ? tier.toUpperCase()
+        : members.length === 1 ? users[members[0]!]!.displayName.toUpperCase() : 'NO TIER';
+      bands.push({ label, pad: BAND_PAD, headerH: BAND_HEADER_H, limitRowH: LIMIT_ROW_H, x: bandX, y: cursor, w: bandW, h: bandH, members, limitsY: cursor + BAND_PAD + BAND_HEADER_H, firstRowY, rowH });
+      cursor += bandH + BAND_GAP;
     }
 
-    const modelPositions = models.map((_, i) => ({
-      x: modelX,
-      y: (h * (i + 1)) / (models.length + 1),
-    }));
+    const modelX = w * 0.84;
+    const modelLeft = modelX - 88;
+    const gatewayX = (bandX + bandW + modelLeft) / 2;
+    const gatewayY = h * 0.5;
+    const gwW = clamp(w * 0.2, 190, 236);
+    const stageH = clamp((h * 0.55 - GATEWAY_HEADER_H) / STAGES.length, 32, 46);
+    const gwH = GATEWAY_HEADER_H + stageH * STAGES.length + 6;
+    const gateway: Rect = { x: gatewayX - gwW / 2, y: gatewayY - gwH / 2, w: gwW, h: gwH };
 
-    return { userX, gatewayX, gatewayY, modelX, userPositions, modelPositions, tierBands };
-  }, [users, models.length]);
+    return {
+      modelX, gatewayY, gateway, stageH, bands, userPositions,
+      entry: { x: gateway.x, y: gatewayY },
+      exit: { x: gateway.x + gateway.w, y: gatewayY },
+    };
+  }, [users, models]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d')!;
     let running = true;
-
 
     function resize() {
       const rect = canvas!.parentElement!.getBoundingClientRect();
@@ -111,33 +178,13 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
 
     function draw() {
       if (!running) return;
-      const { users, models, activeRequests } = propsRef.current;
+      const { users, models, activeRequests, stats, gatewayFlash } = propsRef.current;
       const w = canvas!.width / devicePixelRatio;
       const h = canvas!.height / devicePixelRatio;
       const layout = getLayout(w, h);
+      const now = performance.now();
 
       ctx.clearRect(0, 0, w, h);
-
-      // Tier bands sit behind everything, so a cohort reads as one unit.
-      for (const band of layout.tierBands) {
-        const x = layout.userX - 62;
-        const bw = 124;
-        const bh = band.bottom - band.top;
-        ctx.save();
-        ctx.fillStyle = 'rgba(148, 163, 184, 0.06)';
-        ctx.strokeStyle = 'rgba(148, 163, 184, 0.22)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.roundRect(x, band.top + 4, bw, Math.max(bh - 8, 12), 10);
-        ctx.fill();
-        ctx.stroke();
-        ctx.fillStyle = '#94a3b8';
-        ctx.font = 'bold 10px system-ui, sans-serif';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'top';
-        ctx.fillText(band.tier.toUpperCase(), x + 8, band.top + 9);
-        ctx.restore();
-      }
 
       // Compute model box positions (one box per replica)
       const modelRectW = 176;
@@ -150,90 +197,73 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
           boxes.push({ modelIdx: i, replicaIdx: r, provisioning: r >= m.replicas, x: 0, y: 0 });
         }
       }
+      // Spread the boxes by the room each really takes: an internal model's box has its
+      // two bars underneath. Spacing by count alone let one box's bars run into the
+      // next box on a short screen.
+      const heights = boxes.map(b => modelRectH + (models[b.modelIdx]!.type === 'internal' && !b.provisioning ? BARS_H : 0));
+      const spare = Math.max(h - heights.reduce((a, b) => a + b, 0), 0) / (boxes.length + 1);
+      let top = spare;
       for (let i = 0; i < boxes.length; i++) {
         boxes[i]!.x = layout.modelX;
-        boxes[i]!.y = (h * (i + 1)) / (boxes.length + 1);
+        boxes[i]!.y = top + modelRectH / 2;
+        top += heights[i]! + spare;
       }
 
-      // Draw edges (user → gateway)
+      // Edges: every user into the gateway's left side, the gateway's right side out to
+      // every model replica.
       for (const uPos of layout.userPositions) {
-        drawCurve(ctx, uPos.x, uPos.y, layout.gatewayX, layout.gatewayY, '#1e293b');
+        drawCurve(ctx, uPos.anchorX, uPos.y, layout.entry.x, layout.entry.y, '#1e293b');
       }
-      // Draw edges (gateway → model boxes)
       for (const box of boxes) {
-        drawCurve(ctx, layout.gatewayX, layout.gatewayY, box.x, box.y, box.provisioning ? '#111827' : '#1e293b');
+        drawCurve(ctx, layout.exit.x, layout.exit.y, box.x, box.y, box.provisioning ? '#111827' : '#1e293b');
       }
 
-      // Draw particles
-      const now = performance.now();
+      // Particles. A request the gateway turned away finishes its trip to the gateway,
+      // then bounces back in red; it is drawn after the gateway so the bounce shows.
+      const bounced: { x: number; y: number }[] = [];
       for (const req of activeRequests) {
         const elapsed = now - req.startTime;
         const userIdx = users.findIndex(u => u.name === req.user);
         const modelIdx = models.findIndex(m => m.name === req.model);
         if (userIdx < 0 || modelIdx < 0) continue;
 
-        const uPos = layout.userPositions[userIdx]!;
+        const u = layout.userPositions[userIdx]!;
+        const uX = u.anchorX, uY = u.y;
+        const color = USER_COLORS[userIdx % USER_COLORS.length]!;
+
+        if (req.rejectedAt) {
+          if (req.phase !== 'to_gateway') continue;
+          if (elapsed < SEGMENT_MS) {
+            drawParticle(ctx, getCurvePoint(uX, uY, layout.entry.x, layout.entry.y, elapsed / SEGMENT_MS), color);
+          } else {
+            const t = Math.min((elapsed - SEGMENT_MS) / SEGMENT_MS, 1);
+            bounced.push(getCurvePoint(layout.entry.x, layout.entry.y, uX, uY, t));
+          }
+          continue;
+        }
+
         const readyBoxes = boxes.filter(b => b.modelIdx === modelIdx && !b.provisioning);
         if (readyBoxes.length === 0) continue;
         const mPos = readyBoxes[simpleHash(req.requestId) % readyBoxes.length]!;
-        const color = USER_COLORS[userIdx % USER_COLORS.length]!;
 
         let pos: { x: number; y: number } | null = null;
-        const segmentDuration = 800;
-
         if (req.phase === 'to_gateway') {
-          const t = Math.min(elapsed / segmentDuration, 1);
-          pos = getCurvePoint(uPos.x, uPos.y, layout.gatewayX, layout.gatewayY, t);
+          pos = getCurvePoint(uX, uY, layout.entry.x, layout.entry.y, Math.min(elapsed / SEGMENT_MS, 1));
         } else if (req.phase === 'to_model') {
-          const t = Math.min(elapsed / segmentDuration, 1);
-          pos = getCurvePoint(layout.gatewayX, layout.gatewayY, mPos.x, mPos.y, t);
+          pos = getCurvePoint(layout.exit.x, layout.exit.y, mPos.x, mPos.y, Math.min(elapsed / SEGMENT_MS, 1));
         } else if (req.phase === 'returning') {
-          const t = Math.min(elapsed / (segmentDuration * 2), 1);
-          if (t < 0.5) {
-            pos = getCurvePoint(mPos.x, mPos.y, layout.gatewayX, layout.gatewayY, t * 2);
-          } else {
-            pos = getCurvePoint(layout.gatewayX, layout.gatewayY, uPos.x, uPos.y, (t - 0.5) * 2);
-          }
+          const t = Math.min(elapsed / (SEGMENT_MS * 2), 1);
+          pos = t < 0.5
+            ? getCurvePoint(mPos.x, mPos.y, layout.exit.x, layout.exit.y, t * 2)
+            : getCurvePoint(layout.entry.x, layout.entry.y, uX, uY, (t - 0.5) * 2);
         }
-
-        if (pos) {
-          ctx.beginPath();
-          ctx.arc(pos.x, pos.y, 7, 0, Math.PI * 2);
-          ctx.fillStyle = color;
-          ctx.shadowColor = color;
-          ctx.shadowBlur = 12;
-          ctx.fill();
-          ctx.shadowBlur = 0;
-        }
+        if (pos) drawParticle(ctx, pos, color);
       }
 
-      // Draw gateway node
-      drawHexagon(ctx, layout.gatewayX, layout.gatewayY, 42, '#ff9800');
-      drawText(ctx, 'MaaS', layout.gatewayX, layout.gatewayY + 1, '#fff', 15, 'bold');
-      drawText(ctx, 'Gateway', layout.gatewayX, layout.gatewayY + 58, '#94a3b8', 13);
+      drawGateway(ctx, layout.gateway, layout.stageH, stats, gatewayFlash, now);
+      for (const p of bounced) drawBounced(ctx, p);
 
-      // Draw user nodes
-      const userRadius = 34;
-      for (let i = 0; i < users.length; i++) {
-        const user = users[i]!;
-        const pos = layout.userPositions[i]!;
-        const blockedCount = Object.keys(user.rateLimitedModels).length;
-        const fullyBlocked = models.length > 0 && blockedCount >= models.length;
-        const color = fullyBlocked ? RATE_LIMITED_COLOR : USER_COLORS[i % USER_COLORS.length]!;
-        drawCircle(ctx, pos.x, pos.y, userRadius, color);
-        const fontSize = user.displayName.length > 8 ? 11 : 13;
-        drawText(ctx, user.displayName, pos.x, pos.y + 1, '#fff', fontSize, 'bold');
-
-        const entries = Object.entries(user.rateLimits);
-        if (entries.length > 0) {
-          drawRateLimitCard(ctx, pos.x + userRadius + 6, pos.y, entries, user.rateLimitedModels, models, now);
-        } else if (user.rateLimit) {
-          drawText(ctx, user.rateLimit, pos.x, pos.y + userRadius + 16, 'rgba(148,163,184,0.8)', 11);
-        }
-        if (fullyBlocked) {
-          drawText(ctx, 'ALL BLOCKED', pos.x, pos.y + userRadius + 16, '#f44336', 11, 'bold');
-        }
-      }
+      for (const band of layout.bands) drawBand(ctx, band, users, models);
 
       // Draw model boxes (one per replica)
       for (const box of boxes) {
@@ -346,52 +376,276 @@ function getModelShortName(key: string, models: ModelState[]): string {
   return key.split('-')[0]!.slice(0, 10);
 }
 
-function isKeyBlocked(key: string, blockedModels: Record<string, boolean>, models: ModelState[]): boolean {
-  const model = models.find(m => m.name.endsWith(key) || m.name === key);
-  return model ? !!blockedModels[model.name] : false;
+function drawParticle(ctx: CanvasRenderingContext2D, pos: { x: number; y: number }, color: string): void {
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, 7, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 12;
+  ctx.fill();
+  ctx.shadowBlur = 0;
 }
 
-function drawRateLimitCard(
+/**
+ * A request the gateway turned away, on its way back to the user. Ringed in white and
+ * crossed, so it cannot be mistaken for a user whose own colour happens to be red.
+ */
+function drawBounced(ctx: CanvasRenderingContext2D, pos: { x: number; y: number }): void {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, 8, 0, Math.PI * 2);
+  ctx.fillStyle = BLOCKED_COLOR;
+  ctx.shadowColor = BLOCKED_COLOR;
+  ctx.shadowBlur = 14;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(pos.x - 3, pos.y - 3); ctx.lineTo(pos.x + 3, pos.y + 3);
+  ctx.moveTo(pos.x + 3, pos.y - 3); ctx.lineTo(pos.x - 3, pos.y + 3);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function formatCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 10_000) return `${Math.round(n / 1000)}k`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return `${n}`;
+}
+
+/**
+ * The gateway as the policy pipeline it is. Each stage's row lights up for a moment when
+ * it acts: red when it refused a request, green when requests went through it. The
+ * count on the right is how often it has done so since the page loaded.
+ */
+function drawGateway(
   ctx: CanvasRenderingContext2D,
-  x: number, centerY: number,
-  entries: [string, string][],
-  blockedModels: Record<string, boolean>,
-  models: ModelState[],
+  card: Rect, stageH: number,
+  stats: Stats, flash: Record<GatewayStage, number>,
   now: number,
 ): void {
-  const rowH = 14;
-  const padX = 8, padY = 4;
-  const cardW = 140;
-  const cardH = entries.length * rowH + padY * 2;
-  const cardY = centerY - cardH / 2;
-
-  const pulse = Math.sin(now / 1000 * 2) * 0.15 + 0.35;
+  ctx.save();
   ctx.beginPath();
-  ctx.roundRect(x, cardY, cardW, cardH, 5);
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
+  ctx.roundRect(card.x, card.y, card.w, card.h, 12);
+  ctx.fillStyle = '#0f172a';
+  ctx.shadowColor = 'rgba(255, 152, 0, 0.28)';
+  ctx.shadowBlur = 18;
   ctx.fill();
-  ctx.strokeStyle = `rgba(99, 102, 241, ${pulse})`;
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = GATEWAY_COLOR;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
+
+  drawHexagon(ctx, card.x + 20, card.y + GATEWAY_HEADER_H / 2, 9, GATEWAY_COLOR);
+  ctx.font = 'bold 14px -apple-system, sans-serif';
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('MaaS Gateway', card.x + 36, card.y + GATEWAY_HEADER_H / 2 + 1);
+  ctx.beginPath();
+  ctx.moveTo(card.x + 10, card.y + GATEWAY_HEADER_H);
+  ctx.lineTo(card.x + card.w - 10, card.y + GATEWAY_HEADER_H);
+  ctx.strokeStyle = 'rgba(255, 152, 0, 0.35)';
   ctx.lineWidth = 1;
   ctx.stroke();
 
-  for (let i = 0; i < entries.length; i++) {
-    const [modelKey, limit] = entries[i]!;
-    const shortName = getModelShortName(modelKey, models);
-    const blocked = isKeyBlocked(modelKey, blockedModels, models);
-    const rowY = cardY + padY + i * rowH + rowH / 2;
-    const textColor = blocked ? '#ef4444' : 'rgba(148, 163, 184, 0.9)';
+  const counts: Record<GatewayStage, { value: number; label: string }> = {
+    auth: { value: stats.authRejected, label: 'rejected' },
+    access: { value: stats.accessDenied, label: 'denied' },
+    limit: { value: stats.rateLimitedRequests, label: 'limited' },
+    route: { value: stats.routedRequests, label: 'routed' },
+    meter: { value: stats.totalTokens, label: 'tokens' },
+  };
 
-    ctx.font = 'bold 10px -apple-system, sans-serif';
-    ctx.fillStyle = textColor;
+  STAGES.forEach((stage, i) => {
+    const top = card.y + GATEWAY_HEADER_H + 3 + stageH * i;
+    const cy = top + stageH / 2;
+    const duration = stage.refuses ? 900 : 450;
+    const since = now - flash[stage.key];
+    const glow = flash[stage.key] > 0 && since >= 0 && since < duration ? 1 - since / duration : 0;
+    const accent = stage.refuses ? BLOCKED_COLOR : '#4caf50';
+
+    if (glow > 0) {
+      ctx.beginPath();
+      ctx.roundRect(card.x + 5, top + 2, card.w - 10, stageH - 4, 8);
+      ctx.fillStyle = stage.refuses ? `rgba(239, 68, 68, ${0.38 * glow})` : `rgba(76, 175, 80, ${0.22 * glow})`;
+      ctx.fill();
+    }
+
+    ctx.beginPath();
+    ctx.arc(card.x + 20, cy, 9, 0, Math.PI * 2);
+    ctx.fillStyle = glow > 0.05 ? accent : '#334155';
+    ctx.fill();
+    drawText(ctx, `${i + 1}`, card.x + 20, cy + 0.5, '#fff', 10, 'bold');
+
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(shortName, x + padX, rowY);
-
+    ctx.font = 'bold 12px -apple-system, sans-serif';
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillText(stage.title, card.x + 36, cy - 7);
     ctx.font = '10px -apple-system, sans-serif';
-    ctx.textAlign = 'right';
-    ctx.fillText(blocked ? 'BLOCKED' : limit, x + cardW - padX, rowY);
-  }
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(stage.detail, card.x + 36, cy + 8);
 
+    const { value, label } = counts[stage.key];
+    ctx.textAlign = 'right';
+    ctx.font = 'bold 12px -apple-system, sans-serif';
+    ctx.fillStyle = stage.refuses && value > 0 ? '#f87171' : value > 0 ? '#cbd5e1' : '#475569';
+    ctx.fillText(formatCount(value), card.x + card.w - 12, cy - 7);
+    ctx.font = '9px -apple-system, sans-serif';
+    ctx.fillStyle = '#64748b';
+    ctx.fillText(label, card.x + card.w - 12, cy + 8);
+  });
+}
+
+/** "800k/1m" → { limit: "800k", window: "1m" }; anything else is shown as it is. */
+function splitLimit(text: string): { limit: string; window: string | null } {
+  const m = /^(.+)\/(\d+[smhd])$/.exec(text);
+  return m ? { limit: m[1]!, window: m[2]! } : { limit: text, window: null };
+}
+
+/**
+ * A subscription tier: its per-user limits once, then its users, each with the models it
+ * is currently paused on. Red is MaaS refusing (the tier's token limit), amber is the
+ * provider behind an external model refusing (Google's quota), which MaaS cannot help.
+ */
+function drawBand(ctx: CanvasRenderingContext2D, band: Band, users: UserState[], models: ModelState[]): void {
+  const { pad: BAND_PAD, headerH: BAND_HEADER_H, limitRowH: LIMIT_ROW_H } = band;
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(band.x, band.y, band.w, band.h, 10);
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.06)';
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.22)';
+  ctx.lineWidth = 1;
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+
+  // The tier's limits. Every member has the same ones; if they ever differ, say so
+  // rather than show one member's numbers as everyone's.
+  const cells = models.map(m => {
+    const values = band.members
+      .map(i => Object.entries(users[i]!.rateLimits).find(([k]) => m.name === k || m.name.endsWith(k))?.[1])
+      .filter((v): v is string => v !== undefined);
+    const distinct = [...new Set(values)];
+    return { name: getModelShortName(m.name, models), text: distinct.length === 0 ? null : distinct.length === 1 ? distinct[0]! : 'varies' };
+  });
+  const parsed = cells.map(c => (c.text ? splitLimit(c.text) : null));
+  const perMinute = parsed.every(p => p === null || p.window === '1m');
+
+  const headerY = band.y + BAND_PAD + BAND_HEADER_H / 2 - 1;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.font = 'bold 10px system-ui, sans-serif';
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText(band.label, band.x + BAND_PAD, headerY);
+  ctx.textAlign = 'right';
+  ctx.font = '9px system-ui, sans-serif';
+  ctx.fillStyle = '#64748b';
+  ctx.fillText(perMinute ? 'tokens/min per user' : 'tokens per user', band.x + band.w - BAND_PAD, headerY);
+
+  const colW = (band.w - BAND_PAD * 2) / 2;
+  const anyLimits = cells.some(c => c.text !== null);
+  cells.forEach((c, k) => {
+    const cx = band.x + BAND_PAD + (k % 2) * colW;
+    const cy = band.limitsY + Math.floor(k / 2) * LIMIT_ROW_H + LIMIT_ROW_H / 2;
+    ctx.textAlign = 'left';
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(c.name, cx, cy);
+    const p = parsed[k];
+    const value = !anyLimits ? '…' : p === null ? '–' : perMinute ? p.limit : c.text!;
+    ctx.textAlign = 'right';
+    ctx.font = 'bold 10px -apple-system, sans-serif';
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillText(value, cx + colW - 10, cy);
+  });
+
+  const r = Math.min(9, band.rowH * 0.3);
+  const nameSize = band.rowH < 24 ? 11 : 12;
+  band.members.forEach((i, n) => {
+    const user = users[i]!;
+    const y = band.firstRowY + band.rowH * n;
+    const paused = Object.entries(user.rateLimitedModels);
+    const byGateway = paused.filter(([, by]) => by === 'gateway').map(([m]) => m);
+    const byProvider = paused.filter(([, by]) => by === 'provider').map(([m]) => m);
+    const allBlocked = models.length > 0 && byGateway.length >= models.length;
+
+    const dotX = band.x + BAND_PAD + r;
+    drawCircle(ctx, dotX, y, r, allBlocked ? RATE_LIMITED_COLOR : USER_COLORS[i % USER_COLORS.length]!);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = `bold ${nameSize}px -apple-system, sans-serif`;
+    ctx.fillStyle = allBlocked ? '#94a3b8' : '#fff';
+    const nameX = dotX + r + 8;
+    ctx.fillText(user.displayName, nameX, y + 0.5);
+
+    let x = nameX + ctx.measureText(user.displayName).width + 10;
+    const right = band.x + band.w - BAND_PAD;
+    if (byGateway.length > 0) {
+      const names = allBlocked ? 'all models'
+        : byGateway.length > 2 ? `${byGateway.length} models`
+        : byGateway.map(m => getModelShortName(m, models)).join(', ');
+      x = drawStatus(ctx, x, y, right, names, BLOCKED_COLOR, 'blocked');
+    }
+    for (const m of byProvider) {
+      const p = providerOf(m);
+      const who = p === 'gemini' ? 'Google' : p === 'openai' ? 'OpenAI' : 'provider';
+      // The provider names the model well enough (Google = Gemini) and keeps it short.
+      x = drawStatus(ctx, x, y, right, `${who} quota`, PROVIDER_LIMIT_COLOR, 'provider');
+    }
+  });
+}
+
+/**
+ * A small status mark and text after a user's name: a no-entry sign for a MaaS block,
+ * a warning triangle for a provider's. Shortened with an ellipsis to fit. Returns where
+ * the next mark may start.
+ */
+function drawStatus(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, right: number,
+  text: string, color: string, kind: 'blocked' | 'provider',
+): number {
+  if (x + 16 > right) return x;
+  ctx.save();
+  if (kind === 'blocked') {
+    ctx.beginPath();
+    ctx.arc(x + 5, y, 5, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(x + 2, y - 1, 6, 2);
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(x + 5, y - 5);
+    ctx.lineTo(x + 10, y + 4.5);
+    ctx.lineTo(x, y + 4.5);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(x + 4.4, y - 2, 1.3, 3.5);
+    ctx.fillRect(x + 4.4, y + 2.4, 1.3, 1.2);
+  }
+  ctx.font = 'bold 10px -apple-system, sans-serif';
+  ctx.fillStyle = color;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  let label = text;
+  const room = right - (x + 14);
+  if (ctx.measureText(label).width > room) {
+    while (label.length > 1 && ctx.measureText(label + '…').width > room) label = label.slice(0, -1);
+    label += '…';
+  }
+  ctx.fillText(label, x + 14, y + 0.5);
+  const end = x + 14 + ctx.measureText(label).width + 8;
+  ctx.restore();
+  return end;
 }
 
 /** A small caption under a bar: what it measures on the left, the reading on the right. */

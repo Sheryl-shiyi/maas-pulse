@@ -1,6 +1,7 @@
 import https from 'https';
 import OpenAI from 'openai';
 import { GatewayOpenAI } from './gateway-openai.js';
+import { limitedBy, type LimitedBy } from './rate-limit-source.js';
 import type { UserInfo } from './types.js';
 import { getIdentityToken, type IdentityRef } from './sa-token.js';
 import { parseRequestParams, paramsFor, type RequestParams } from './request-params.js';
@@ -106,6 +107,10 @@ export interface InferenceResult {
   tokensUsed: number;
   latencyMs: number;
   rateLimited: boolean;
+  /** For a 429: the MaaS gateway's own limit, or the provider behind it. */
+  limitedBy?: LimitedBy;
+  /** The provider's own words for its 429, e.g. Google's quota message. */
+  providerMessage?: string;
   retryAfterMs?: number;
   error?: string;
   /** HTTP status when the gateway rejected the call, so the UI can tell a revoked
@@ -175,8 +180,9 @@ export async function sendInference(user: string, model: string, question: strin
       const retryHeader = typeof headers?.get === 'function' ? headers.get('retry-after') : null;
       const retryAfterMs = retryHeader ? parseFloat(retryHeader) * 1000 : undefined;
       const rateLimitInfo = headers && typeof headers.get === 'function' ? parseRateLimitHeaders(headers) : undefined;
-      console.log(`[maas] ${user} → ${model}: 429 rate limited`);
-      return { answer: '', tokensUsed: 0, latencyMs, rateLimited: true, retryAfterMs, rateLimitInfo };
+      const { by, message } = limitedBy(err.error);
+      console.log(`[maas] ${user} → ${model}: 429 from the ${by}${message ? `: ${message}` : ''}`);
+      return { answer: '', tokensUsed: 0, latencyMs, rateLimited: true, limitedBy: by, providerMessage: message, retryAfterMs, rateLimitInfo };
     }
 
     const message = err instanceof Error ? err.message : 'Unknown error';

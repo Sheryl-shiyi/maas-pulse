@@ -1,4 +1,5 @@
 import type { FeedEntry } from '../types';
+import { providerOf } from './providerLogos';
 
 interface Named { name: string; displayName: string }
 
@@ -28,18 +29,27 @@ export function LiveFeed({ entries, users = [], models = [] }: LiveFeedProps) {
               <span style={styles.model}>{modelName(entry.model)}</span>
               {entry.rateLimited ? (
                 <span style={styles.blocked}>429</span>
+              ) : entry.providerLimited ? (
+                <span style={styles.errorBadge}>429</span>
               ) : entry.error ? (
                 <span style={styles.errorBadge}>{entry.status ?? 'ERR'}</span>
               ) : (
                 <span style={styles.latency}>{entry.latencyMs}ms</span>
               )}
             </div>
-            <div style={styles.question}>Q: {truncate(entry.question, 70)}</div>
+            {/* A request already in flight when this page opened has no question. */}
+            {entry.question && <div style={styles.question}>Q: {truncate(entry.question, 70)}</div>}
             {entry.answer && (
               <div style={styles.answer}>A: {truncate(entry.answer, 80)}</div>
             )}
             {entry.rateLimited && (
-              <div style={styles.rateLimitMsg}>Rate limited</div>
+              <div style={styles.rateLimitMsg}>Rate limited by MaaS (token limit)</div>
+            )}
+            {entry.providerLimited && (
+              <div style={styles.providerMsg} title={entry.providerMessage}>
+                {providerName(entry.model)} quota, not a MaaS limit
+                {entry.providerMessage ? `: ${truncate(entry.providerMessage, 60)}` : ''}
+              </div>
             )}
             {entry.error && (
               <div style={styles.rateLimitMsg}>
@@ -53,6 +63,11 @@ export function LiveFeed({ entries, users = [], models = [] }: LiveFeedProps) {
       </div>
     </div>
   );
+}
+
+function providerName(model: string): string {
+  const p = providerOf(model);
+  return p === 'gemini' ? 'Google' : p === 'openai' ? 'OpenAI' : 'Provider';
 }
 
 function truncate(text: string, maxLen: number): string {
@@ -76,4 +91,5 @@ const styles: Record<string, React.CSSProperties> = {
   question: { color: '#94a3b8', lineHeight: 1.4 },
   answer: { color: '#64748b', lineHeight: 1.4, fontStyle: 'italic' },
   rateLimitMsg: { color: '#f44336', fontWeight: 600, fontSize: 11 },
+  providerMsg: { color: '#f59e0b', fontWeight: 600, fontSize: 11 },
 };
