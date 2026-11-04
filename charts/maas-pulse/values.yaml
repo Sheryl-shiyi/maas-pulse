@@ -191,6 +191,11 @@ models:
   - name: nemotron-3-nano-30b-a3b
     displayName: NVIDIA Nemotron 3 Nano 30B A3B FP8
     uri: oci://quay.io/jharmison/models:redhatai--nvidia-nemotron-3-nano-30b-a3b-fp8-modelcar
+    # EXPERIMENT (T34 step 3), vLLM only; the platform stays RHOAI 3.5.2. RHAIIS
+    # 3.6-fast2 (vLLM 0.26), by the digest the RHOAI 3.6 EA bundle references, because
+    # 0.26 is the first vLLM that prefix-caches hybrid Mamba models like Nemotron and
+    # can match prefixes finer than its 4176-token block. Unsupported on a 3.5 platform.
+    image: registry.redhat.io/rhaii-fast/vllm-cuda-rhel9@sha256:97c7d6f66f3f0897b3ff10ddd135de930d45bdd116cf41a43e3ad7270029116a
     hardwareProfile:
       enabled: true
       name: gpu
@@ -212,6 +217,11 @@ models:
       - --enable-force-include-usage
       - --reasoning-parser-plugin=/mnt/models/nano_v3_reasoning_parser.py
       - --reasoning-parser=nano_v3
+      # Hybrid prefix caching (vLLM 0.26, PR #46384): save Mamba state at aligned
+      # scheduler-step ends, and allow hits every 16 tokens (must divide the block size).
+      - --enable-prefix-caching
+      - --mamba-cache-mode=align
+      - --prefix-match-unit=16
     nodeSelector:
       nvidia.com/gpu.product: NVIDIA-L40S
     tolerations:
