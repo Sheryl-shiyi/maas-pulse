@@ -22,6 +22,9 @@ export interface ReplicaStatus {
   /** Prefix cache hit rate over the last couple of minutes, or null when this replica
    *  has served nothing recently and so has no hit rate to report. */
   cacheHitPercent: number | null;
+  /** Whether this replica's vLLM has prefix caching enabled at all; null when unknown.
+   *  False means the hit rate is not "idle" but simply not applicable. */
+  prefixCaching: boolean | null;
   status: ModelStatus;
 }
 export type PromptShape = 'short' | 'shared-prefix' | 'unique-prefix';

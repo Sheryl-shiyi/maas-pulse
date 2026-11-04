@@ -298,8 +298,12 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
               queued > 0 ? QUEUE_COLOR : CAPTION_COLOR);
             const cacheY = barY + 22;
             drawCacheBar(ctx, barX, cacheY, modelRectW, eased.cache, stat.cacheHitPercent === null);
+            // "off" when this vLLM does not prefix-cache at all (Nemotron, a hybrid Mamba
+            // model), which is different from "idle": no recent traffic to measure.
             drawCaption(ctx, barX, cacheY + 11, modelRectW, 'Cache hit rate',
-              stat.cacheHitPercent === null ? 'idle' : `${stat.cacheHitPercent}%`, CAPTION_COLOR);
+              stat.prefixCaching === false ? 'off'
+                : stat.cacheHitPercent === null ? 'idle' : `${stat.cacheHitPercent}%`,
+              CAPTION_COLOR);
           }
         }
       }

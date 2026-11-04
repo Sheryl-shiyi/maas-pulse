@@ -121,17 +121,41 @@ export function orderedPods(model: string, seen: string[]): string[] {
  */
 const CACHE_RATE_WINDOW = '2m';
 
+/**
+ * Whether each replica of a model has prefix caching enabled, from vLLM's own
+ * `vllm:cache_config_info` gauge (label `enable_prefix_caching`, "True"/"False").
+ *
+ * Without this a replica with caching off was indistinguishable from an idle one: both
+ * have no hit rate, so Nemotron, which is a hybrid Mamba model that vLLM 0.18 does not
+ * prefix-cache by default, sat captioned "idle" while serving 30 requests. Absent from
+ * the map means unknown (older vLLM, or not scraped yet).
+ *
+ * Keyed by pod alone: unlike the other vLLM series, this gauge carries no `model_name`
+ * label (it has `pod`, `namespace`, `engine` and the cache settings). Pod names are
+ * unique, and the caller looks up the pods it already attributed to a model.
+ */
+export function prefixCachingByPod(rows: Record<string, string | number>[]): Map<string, boolean> {
+  const out = new Map<string, boolean>();
+  for (const r of rows) {
+    const flag = String(r['enable_prefix_caching'] ?? '').toLowerCase();
+    if (flag === 'true' || flag === 'false') out.set(String(r['pod'] ?? ''), flag === 'true');
+  }
+  return out;
+}
+
 async function pollModelMetrics(models: ModelInfo[]) {
-  const [running, waiting, kvCache, latency, cacheHits, cacheQueries] = await Promise.all([
+  const [running, waiting, kvCache, latency, cacheHits, cacheQueries, cacheConfig] = await Promise.all([
     query('vllm:num_requests_running'),
     query('vllm:num_requests_waiting'),
     query('vllm:kv_cache_usage_perc'),
     query('histogram_quantile(0.95, rate(vllm:e2e_request_latency_seconds_bucket[1m]))'),
     query(`rate(vllm:prefix_cache_hits_total[${CACHE_RATE_WINDOW}])`),
     query(`rate(vllm:prefix_cache_queries_total[${CACHE_RATE_WINDOW}])`),
+    query('vllm:cache_config_info'),
   ]);
 
   const scaleMetrics: { model: string; queuedRequests: number; kvCachePercent: number }[] = [];
+  const cachingByPod = prefixCachingByPod(cacheConfig);
 
   for (const model of models) {
     if (model.type === 'external') continue;
@@ -167,6 +191,7 @@ async function pollModelMetrics(models: ModelInfo[]) {
         queuedRequests: Math.round(q),
         kvCachePercent: Math.round(kv),
         cacheHitPercent: hitPercent,
+        prefixCaching: cachingByPod.get(pod) ?? null,
         status: computeStatus(q, kv),
       };
     });
