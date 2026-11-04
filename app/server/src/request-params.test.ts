@@ -22,6 +22,11 @@ describe('parseRequestParams', () => {
     assert.deepEqual(parseRequestParams('"minimal"'), {});
   });
 
+  it('passes nested fields through untouched (Qwen3 enable_thinking)', () => {
+    const p = parseRequestParams('{"publishers/llm/models/qwen3-8b-fp8":{"chat_template_kwargs":{"enable_thinking":false}}}');
+    assert.deepEqual(paramsFor('publishers/llm/models/qwen3-8b-fp8', p), { chat_template_kwargs: { enable_thinking: false } });
+  });
+
   it('drops entries whose value is not an object', () => {
     const p = parseRequestParams('{"a":{"x":1},"b":"minimal","c":[1],"d":null}');
     assert.deepEqual(p, { a: { x: 1 } });

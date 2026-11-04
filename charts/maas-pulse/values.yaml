@@ -320,14 +320,16 @@ trafficUI:
   modelDisplayNames: "Nemotron 30B,Qwen3 8B,Gemini Flash,GPT-5.4 Nano"
   modelTypes: "internal,internal,external,external"
   # Extra request body fields per model, sent by the traffic generator, keyed by the
-  # model name it sends. Empty by default. Example for a reasoning model:
-  #   modelRequestParams:
-  #     gpt-5-nano:
-  #       reasoning_effort: minimal
-  # gpt-5-nano was tried and dropped: even with "minimal" it spent the whole 100-token
-  # budget reasoning on every question in the generator's pool, returning an empty
-  # answer that was still billed.
-  modelRequestParams: {}
+  # model name it sends.
+  # Qwen3 thinks aloud by default: its answers began "<think> Okay, I need to…" and at
+  # the generator's 100-token limit the live feed showed mostly reasoning. Its chat
+  # template takes enable_thinking; the other backends would reject the field.
+  # (gpt-5-nano was tried with reasoning_effort: minimal and dropped: it still spent the
+  # whole budget reasoning and returned empty, billed answers.)
+  modelRequestParams:
+    "publishers/llm/models/qwen3-8b-fp8":
+      chat_template_kwargs:
+        enable_thinking: false
   # The demo cohort: one admin plus nine users spread across three subscription tiers.
   # Every list below is positional and must stay the same length and order.
   userNames: "admin,user1,user2,user3,user4,user5,user6,user7,user8,user9"
