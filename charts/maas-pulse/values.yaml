@@ -332,10 +332,16 @@ trafficUI:
   # model name it sends.
   # Qwen3 thinks aloud by default: its answers began "<think> Okay, I need to…" and at
   # the generator's 100-token limit the live feed showed mostly reasoning. Its chat
-  # template takes enable_thinking; the other backends would reject the field.
+  # template takes enable_thinking; the external backends would reject the field.
+  # Nemotron reasons too, but its reasoning parser moves it out of the answer, so at 100
+  # tokens the answer came back empty (finish_reason "length"); with thinking off the
+  # whole budget goes to the answer.
   # (gpt-5-nano was tried with reasoning_effort: minimal and dropped: it still spent the
   # whole budget reasoning and returned empty, billed answers.)
   modelRequestParams:
+    "publishers/llm/models/nemotron-3-nano-30b-a3b":
+      chat_template_kwargs:
+        enable_thinking: false
     "publishers/llm/models/qwen3-8b-fp8":
       chat_template_kwargs:
         enable_thinking: false
