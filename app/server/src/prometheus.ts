@@ -126,8 +126,8 @@ const CACHE_RATE_WINDOW = '2m';
  * `vllm:cache_config_info` gauge (label `enable_prefix_caching`, "True"/"False").
  *
  * Without this a replica with caching off was indistinguishable from an idle one: both
- * have no hit rate, so Nemotron, which is a hybrid Mamba model that vLLM 0.18 does not
- * prefix-cache by default, sat captioned "idle" while serving 30 requests. Absent from
+ * have no hit rate, so Nemotron, which is a hybrid Mamba model that vLLM before 0.26 does
+ * not prefix-cache by default, sat captioned "idle" while serving 30 requests. Absent from
  * the map means unknown (older vLLM, or not scraped yet).
  *
  * Keyed by pod alone: unlike the other vLLM series, this gauge carries no `model_name`

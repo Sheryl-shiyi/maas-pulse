@@ -142,7 +142,13 @@ externalProviderKeepalive:
 authorino:
   replicas: 3
 
-defaultServingImage: registry.redhat.io/rhaii/vllm-cuda-rhel9:3.4.0
+# vLLM runtime for both internal models: RHAIIS 3.5.2, which is vLLM 0.24.0 and the
+# same image (by digest) that RHOAI 3.5.2's v3-5-2 workload template uses. It is set
+# here rather than taken from that template because each LLMInferenceService pins the
+# template set it first saw, so an RHOAI upgrade alone never moves the runtime: this
+# cluster ran 3.4.0 (vLLM 0.18) for weeks after reaching RHOAI 3.5. A model can
+# override it with its own `image:`.
+defaultServingImage: registry.redhat.io/rhaii/vllm-cuda-rhel9:3.5.2
 
 # llm-d Endpoint Picker (EPP) scheduling profile.
 #
