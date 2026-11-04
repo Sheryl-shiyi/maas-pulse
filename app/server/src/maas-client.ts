@@ -1,5 +1,6 @@
 import https from 'https';
 import OpenAI from 'openai';
+import { GatewayOpenAI } from './gateway-openai.js';
 import type { UserInfo } from './types.js';
 import { getIdentityToken, type IdentityRef } from './sa-token.js';
 import { parseRequestParams, paramsFor, type RequestParams } from './request-params.js';
@@ -53,7 +54,7 @@ function tokenSubject(token: string): string {
 }
 
 function buildClient(bearer: string): OpenAI {
-  return new OpenAI({
+  return new GatewayOpenAI({
     baseURL: baseUrl,
     apiKey: bearer,
     timeout: 30000,

@@ -1,10 +1,18 @@
 import type { FeedEntry } from '../types';
 
+interface Named { name: string; displayName: string }
+
 interface LiveFeedProps {
   entries: FeedEntry[];
+  /** For showing the names the topology uses (free:user1, Nemotron 30B) rather than the
+   *  internal ones (user1, publishers/llm/models/...). Falls back to the raw name. */
+  users?: Named[];
+  models?: Named[];
 }
 
-export function LiveFeed({ entries }: LiveFeedProps) {
+export function LiveFeed({ entries, users = [], models = [] }: LiveFeedProps) {
+  const userName = (n: string) => users.find(u => u.name === n)?.displayName ?? n;
+  const modelName = (n: string) => models.find(m => m.name === n)?.displayName ?? n;
   return (
     <div style={styles.container}>
       <h3 style={styles.title}>Live Feed</h3>
@@ -15,9 +23,9 @@ export function LiveFeed({ entries }: LiveFeedProps) {
         {entries.map(entry => (
           <div key={entry.id} style={styles.entry}>
             <div style={styles.header}>
-              <span style={styles.user}>{entry.user}</span>
+              <span style={styles.user}>{userName(entry.user)}</span>
               <span style={styles.arrow}>&rarr;</span>
-              <span style={styles.model}>{entry.model}</span>
+              <span style={styles.model}>{modelName(entry.model)}</span>
               {entry.rateLimited ? (
                 <span style={styles.blocked}>429</span>
               ) : entry.error ? (

@@ -11,7 +11,12 @@ spec:
     default:
       labels:
         model: responseBodyJSON("/model")
-        user: auth.identity.userid
+        # Kubernetes fixes a ServiceAccount's username as
+        # system:serviceaccount:maas-tier-free:user1. Shortened here to free:user1, the name
+        # the traffic view uses, and the label RHOAI's own dashboard reads too. Only
+        # startsWith/replace, and a fallback for every other identity (admin, OIDC users),
+        # because on RHCL 1.4 a label that fails to evaluate holds every response open.
+        user: 'auth.identity.userid.startsWith("system:serviceaccount:maas-tier-") ? auth.identity.userid.replace("system:serviceaccount:maas-tier-", "") : auth.identity.userid'
         subscription: auth.identity.selected_subscription
         # Every label must resolve for every identity. organization_id and cost_center
         # read subscription_info fields no subscription sets, and from RHCL 1.4 the wasm

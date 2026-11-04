@@ -287,7 +287,7 @@ export default function App() {
               <Topology users={users} models={models} activeRequests={activeRequests} />
             </div>
             <div style={styles.sidebar}>
-              <LiveFeed entries={feed} />
+              <LiveFeed entries={feed} users={users} models={models} />
               <MetricsPanel stats={stats} />
             </div>
           </div>

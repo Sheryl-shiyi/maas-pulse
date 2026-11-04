@@ -1,11 +1,19 @@
 import { useRef, useEffect, useCallback } from 'react';
 import type { ModelState, UserState, ActiveRequest } from '../types';
+import { providerOf, providerLabel, drawProviderLogo } from './providerLogos';
 
 const USER_COLORS = ['#42a5f5', '#66bb6a', '#ffa726', '#ab47bc', '#ef5350', '#26c6da', '#ec407a', '#8d6e63'];
 const STATUS_COLORS: Record<string, string> = { healthy: '#4caf50', busy: '#ff9800', overloaded: '#f44336' };
 const RATE_LIMITED_COLOR = '#333333';
 const QUEUE_COLOR = '#ef4444';
 const CACHE_COLOR = '#38bdf8';
+/**
+ * External models have no vLLM metrics, so they never get a health colour. They used to
+ * fall through to slate grey, which read as "offline". Indigo says "served by someone
+ * else" without borrowing the green/orange/red that mean something for internal models.
+ */
+const EXTERNAL_COLOR = '#4f46e5';
+const CAPTION_COLOR = 'rgba(148, 163, 184, 0.85)';
 
 /**
  * Full scale for the load bar, in requests.
@@ -249,11 +257,12 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
           // reporting, that summary equals the other replica's numbers, so a brand new
           // pod appeared as an exact clone of the busy one it had just joined.
           const stat = model.replicaStats[box.replicaIdx];
-          const statusColor = stat ? (STATUS_COLORS[stat.status] || '#4caf50') : '#475569';
+          const external = model.type !== 'internal';
+          const statusColor = external ? EXTERNAL_COLOR : stat ? (STATUS_COLORS[stat.status] || '#4caf50') : '#475569';
           drawRoundedRect(ctx, box.x - modelRectW / 2, box.y - modelRectH / 2, modelRectW, modelRectH, 10, statusColor);
           const label = totalBoxes > 1 ? `${model.displayName} #${box.replicaIdx + 1}` : model.displayName;
           drawText(ctx, label, box.x, box.y - 8, '#fff', 13, 'bold');
-          if (model.type === 'internal') {
+          if (!external) {
             const hit = stat?.cacheHitPercent;
             const detail = stat
               ? `R:${stat.runningRequests} Q:${stat.queuedRequests} KV:${stat.kvCachePercent}%`
@@ -261,7 +270,9 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
               : 'awaiting metrics';
             drawText(ctx, detail, box.x, box.y + 12, 'rgba(255,255,255,0.7)', 10);
           } else {
-            drawText(ctx, 'external', box.x, box.y + 12, 'rgba(255,255,255,0.7)', 11);
+            const provider = providerOf(model.name);
+            if (provider) drawProviderLogo(ctx, provider, box.x - modelRectW / 2 + 22, box.y, 22);
+            drawText(ctx, providerLabel(provider), box.x, box.y + 12, 'rgba(255,255,255,0.8)', 11);
           }
 
           // Below the box: how much work this replica is holding, and how warm its
@@ -275,10 +286,20 @@ export function Topology({ users, models, activeRequests }: TopologyProps) {
             eased.cache = approach(eased.cache, stat.cacheHitPercent ?? 0);
             barsRef.current.set(key, eased);
 
+            // Each bar carries a one-line caption: an audience cannot be expected to know
+            // what two unlabelled strips under a box mean. The captions print the exact
+            // readings; only the bars themselves are eased.
             const barX = box.x - modelRectW / 2;
             const barY = box.y + modelRectH / 2 + 6;
             drawLoadBar(ctx, barX, barY, modelRectW, eased.running, eased.queued, statusColor);
-            drawCacheBar(ctx, barX, barY + 9, modelRectW, eased.cache, stat.cacheHitPercent === null);
+            const queued = stat.queuedRequests;
+            drawCaption(ctx, barX, barY + 14, modelRectW, `In flight (of ${LOAD_BAR_SCALE})`,
+              queued > 0 ? `${stat.runningRequests} + ${queued} queued` : `${stat.runningRequests} running`,
+              queued > 0 ? QUEUE_COLOR : CAPTION_COLOR);
+            const cacheY = barY + 22;
+            drawCacheBar(ctx, barX, cacheY, modelRectW, eased.cache, stat.cacheHitPercent === null);
+            drawCaption(ctx, barX, cacheY + 11, modelRectW, 'Cache hit rate',
+              stat.cacheHitPercent === null ? 'idle' : `${stat.cacheHitPercent}%`, CAPTION_COLOR);
           }
         }
       }
@@ -367,6 +388,23 @@ function drawRateLimitCard(
     ctx.fillText(blocked ? 'BLOCKED' : limit, x + cardW - padX, rowY);
   }
 
+}
+
+/** A small caption under a bar: what it measures on the left, the reading on the right. */
+function drawCaption(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number,
+  label: string, value: string, valueColor: string,
+): void {
+  ctx.font = '9px -apple-system, sans-serif';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = CAPTION_COLOR;
+  ctx.textAlign = 'left';
+  ctx.fillText(label, x, y);
+  ctx.font = 'bold 9px -apple-system, sans-serif';
+  ctx.fillStyle = valueColor;
+  ctx.textAlign = 'right';
+  ctx.fillText(value, x + w, y);
 }
 
 /** One easing step toward a target, snapping once the remaining gap is invisible. */

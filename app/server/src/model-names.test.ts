@@ -37,6 +37,12 @@ describe('stripMaasPrefix', () => {
 });
 
 describe('normalizeModelName', () => {
+  it('keeps gpt-5.4-nano and the retired gpt-5-nano apart when both are priced', () => {
+    const both = [...KNOWN, 'gpt-5-nano'];
+    assert.equal(normalizeModelName('gpt-5.4-nano-2026-03-17', both), 'gpt-5.4-nano');
+    assert.equal(normalizeModelName('gpt-5-nano-2025-08-07', both), 'gpt-5-nano');
+  });
+
   // Observed on the cluster as the `model` label of authorized_hits.
   it('passes through names already in canonical form', () => {
     for (const name of KNOWN) {

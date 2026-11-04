@@ -331,7 +331,9 @@ trafficUI:
   # The demo cohort: one admin plus nine users spread across three subscription tiers.
   # Every list below is positional and must stay the same length and order.
   userNames: "admin,user1,user2,user3,user4,user5,user6,user7,user8,user9"
-  userDisplayNames: "Admin,Free 1,Free 2,Free 3,Pro 1,Pro 2,Pro 3,Max 1,Max 2,Max 3"
+  # The same short names the metrics carry (see templates/telemetrypolicy.yaml), so the
+  # traffic view, the chargeback view and RHOAI's dashboard all say free:user1.
+  userDisplayNames: "admin,free:user1,free:user2,free:user3,pro:user4,pro:user5,pro:user6,max:user7,max:user8,max:user9"
   userRateLimits: "100k/min,1k/min,1k/min,1k/min,10k/min,10k/min,10k/min,800k/min,800k/min,800k/min"
   # Only used for users WITHOUT a ServiceAccount; for the rest the group is derived
   # from the SA namespace, so the subscription and the user list cannot disagree.

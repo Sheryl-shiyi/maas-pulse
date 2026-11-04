@@ -1,5 +1,6 @@
 import { query } from './prometheus.js';
 import { resolveModel } from './model-names.js';
+import { shortUserName } from './user-names.js';
 
 export interface ModelRate {
   model: string;
@@ -32,6 +33,9 @@ const DEFAULT_RATES: Record<string, { inputPer1M: number; outputPer1M: number }>
   'qwen3-8b-fp8': { inputPer1M: 0.10, outputPer1M: 0.10 },
   'gemini-3.1-flash-lite': { inputPer1M: 0.075, outputPer1M: 0.30 },
   'gpt-5.4-nano': { inputPer1M: 0.20, outputPer1M: 1.25 },
+  // Retired from the demo on 2026-11-03 (empty answers), kept so its past usage still
+  // prices correctly in windows that reach back to it.
+  'gpt-5-nano': { inputPer1M: 0.05, outputPer1M: 0.40 },
 };
 
 let modelRatesConfig: Record<string, { inputPer1M: number; outputPer1M: number }> = { ...DEFAULT_RATES };
@@ -81,7 +85,7 @@ export async function getChargebackData(timeRange: string): Promise<ChargebackRe
   const rowMap = new Map<string, ChargebackRow>();
 
   for (const h of hitsData) {
-    const user = String(h['user'] || 'unknown');
+    const user = shortUserName(String(h['user'] || 'unknown'));
     const model = resolveModel(h as Record<string, string | number>, knownModelNames);
     const key = `${user}|${model}`;
     const tokens = Math.round(Number(h['value']) || 0);
@@ -89,11 +93,19 @@ export async function getChargebackData(timeRange: string): Promise<ChargebackRe
     const costPer1M = rate ? (rate.inputPer1M + rate.outputPer1M) / 2 : 0.10;
     const costUsd = tokens * costPer1M / 1_000_000;
 
-    rowMap.set(key, { user, model, tokens, requests: 0, rateLimited: 0, costUsd });
+    // Accumulate: an old long-name series and its new short-name successor fold into
+    // the same user, and must add up rather than one replacing the other.
+    const existing = rowMap.get(key);
+    if (existing) {
+      existing.tokens += tokens;
+      existing.costUsd += costUsd;
+    } else {
+      rowMap.set(key, { user, model, tokens, requests: 0, rateLimited: 0, costUsd });
+    }
   }
 
   for (const c of callsData) {
-    const user = String(c['user'] || 'unknown');
+    const user = shortUserName(String(c['user'] || 'unknown'));
     const model = resolveModel(c as Record<string, string | number>, knownModelNames);
     const key = `${user}|${model}`;
     const requests = Math.round(Number(c['value']) || 0);
@@ -106,7 +118,7 @@ export async function getChargebackData(timeRange: string): Promise<ChargebackRe
   }
 
   for (const l of limitedData) {
-    const user = String(l['user'] || 'unknown');
+    const user = shortUserName(String(l['user'] || 'unknown'));
     const model = resolveModel(l as Record<string, string | number>, knownModelNames);
     const key = `${user}|${model}`;
     const rateLimited = Math.round(Number(l['value']) || 0);
@@ -116,7 +128,12 @@ export async function getChargebackData(timeRange: string): Promise<ChargebackRe
     }
   }
 
-  const rows = Array.from(rowMap.values()).sort((a, b) => b.costUsd - a.costUsd);
+  // Limitador keeps a counter for every label set it has ever seen, until it restarts.
+  // Over a time window those stale series report zero; listing them showed retired
+  // models and an "unknown" user that had done nothing in the window.
+  const rows = Array.from(rowMap.values())
+    .filter(r => r.tokens > 0 || r.requests > 0 || r.rateLimited > 0)
+    .sort((a, b) => b.costUsd - a.costUsd);
 
   const totalTokens = rows.reduce((s, r) => s + r.tokens, 0);
   const totalRequests = rows.reduce((s, r) => s + r.requests, 0);
