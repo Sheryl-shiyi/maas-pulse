@@ -152,6 +152,24 @@ else
   done <<< "$drs"
 fi
 
+# Each LLMInferenceService pins the RHOAI config templates it first saw in
+# status.annotations, so an RHOAI upgrade leaves its llm-d scheduler (EPP) on the old
+# image. Compare against the image KServe would use today.
+want_epp=$(oc get deploy -n redhat-ods-applications -o json 2>/dev/null \
+  | jq -r '[.items[].spec.template.spec.containers[].env[]? | select(.name=="RELATED_IMAGE_ODH_LLM_D_ROUTER_ENDPOINT_PICKER_IMAGE") | .value][0] // empty')
+if [ -n "$want_epp" ]; then
+  while read -r pod img; do
+    [ -z "$pod" ] && continue
+    if [ "$img" = "$want_epp" ]; then
+      pass "llm-d scheduler ${pod%-kserve-router-scheduler-*} on the current RHOAI image"
+    else
+      warn "llm-d scheduler ${pod%-kserve-router-scheduler-*} runs an older image than this RHOAI ships: re-pin with oc patch llminferenceservice <name> -n $MODELS_NS --subresource=status --type=merge -p '{\"status\":{\"annotations\":{\"serving.kserve.io/config-llm-scheduler\":\"<vX-Y-Z>-kserve-config-llm-scheduler\"}}}'"
+    fi
+  done < <(oc get pods -n "$MODELS_NS" -o json 2>/dev/null | jq -r '.items[] | select(.metadata.name|test("-kserve-router-scheduler-")) | select(.metadata.deletionTimestamp==null) | "\(.metadata.name) \(.spec.containers[] | select(.name=="main") | .image)"')
+else
+  skip "could not read KServe's default llm-d scheduler image"
+fi
+
 echo
 echo "Traffic"
 T_MAX=$(token "$MAX_USER")
