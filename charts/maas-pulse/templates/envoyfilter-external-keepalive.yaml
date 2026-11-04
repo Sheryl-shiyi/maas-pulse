@@ -1,0 +1,50 @@
+{{- if and .Values.externalModels .Values.externalProviderKeepalive }}
+{{/*
+The gateway reaches external providers through the cluster's AWS NAT gateway, which
+drops a TCP flow after 350 seconds of inactivity and resets any later packet on it.
+Envoy keeps idle upstream connections pooled for an hour, so after a quiet spell every
+pooled connection to a provider was dead, and the next requests failed at once with
+`503 UC upstream_reset_before_response_started{connection_termination}`. Measured:
+after 420 seconds idle, 10 of 10 concurrent calls failed.
+
+TCP keepalive probes on idle upstream connections keep the NAT mapping alive, and
+close a connection whose peer has really gone. They are set here, on the gateway's
+clusters, because the obvious place does not hold:
+- the provider's DestinationRule (`connectionPool`) is re-rendered by RHOAI's
+  ExternalProvider controller on every periodic resync, roughly every ten hours;
+- an EnvoyFilter cannot merge `idle_timeout` into `typed_extension_protocol_options`,
+  which Istio rebuilds after patches. A top-level cluster field such as
+  `upstream_connection_options` merges cleanly.
+*/}}
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: maas-pulse-external-keepalive
+  namespace: openshift-ingress
+  labels:
+    {{- include "maas-pulse.labels" . | nindent 4 }}
+spec:
+  workloadSelector:
+    labels:
+      gateway.networking.k8s.io/gateway-name: maas-default-gateway
+  configPatches:
+  {{- $seen := dict }}
+  {{- range .Values.externalModels }}
+  {{- if and . .endpoint (not (hasKey $seen .endpoint)) }}
+  {{- $_ := set $seen .endpoint true }}
+  - applyTo: CLUSTER
+    match:
+      cluster:
+        service: {{ .endpoint }}
+        portNumber: {{ .port | default 443 }}
+    patch:
+      operation: MERGE
+      value:
+        upstream_connection_options:
+          tcp_keepalive:
+            keepalive_time: {{ $.Values.externalProviderKeepalive.time }}
+            keepalive_interval: {{ $.Values.externalProviderKeepalive.interval }}
+            keepalive_probes: {{ $.Values.externalProviderKeepalive.probes }}
+  {{- end }}
+  {{- end }}
+{{- end }}

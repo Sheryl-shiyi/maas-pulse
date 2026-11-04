@@ -125,11 +125,14 @@ monitoring:
   # whatever KServe generated alone.
   vllmScrapeInterval: 5s
 
-# How long the gateway keeps an idle connection to an external provider. Must stay below
-# the AWS NAT gateway's 350s idle timeout: past it, the NAT forgets the flow and the next
-# request on that connection fails with a 503. Envoy's default is an hour. Applied to the
-# generated DestinationRules by a post-install hook. Set to null to leave them alone.
-externalProviderIdleTimeout: 240s
+# TCP keepalive on the gateway's connections to external providers, in seconds. The AWS
+# NAT gateway drops a flow idle for 350s; without probes, a pooled connection died there
+# and the next request on it got a 503. `time` must stay well below 350. Applied as an
+# EnvoyFilter (templates/envoyfilter-external-keepalive.yaml). Set to null to disable.
+externalProviderKeepalive:
+  time: 60
+  interval: 30
+  probes: 3
 
 # Authorino validates every ServiceAccount token with a TokenReview, and one replica
 # rate limits itself doing it: ~30% of calls rejected at 4 requests/s, ~52% at 8/s.

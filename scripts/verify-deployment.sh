@@ -136,20 +136,23 @@ else
   esac
 fi
 
-# The AWS NAT drops TCP flows idle for 350s; pooled connections kept longer fail with 503.
-drs=$(oc get destinationrule -n "$MODELS_NS" -l inference.opendatahub.io/external-provider -o json 2>/dev/null \
-  | jq -r '.items[] | "\(.metadata.name) \(.spec.trafficPolicy.connectionPool.http.idleTimeout // "unset")"')
-if [ -z "$drs" ]; then
-  skip "no external-provider DestinationRules"
+# The AWS NAT drops TCP flows idle for 350s; a pooled provider connection without
+# keepalive probes dies there and its next request gets a 503. Checked in the gateway's
+# live Envoy config, because the provider DestinationRules are re-rendered by RHOAI.
+gw_pod=$(oc get pods -n openshift-ingress -l gateway.networking.k8s.io/gateway-name=maas-default-gateway -o name 2>/dev/null | head -1)
+hosts=$(oc get destinationrule -n "$MODELS_NS" -l inference.opendatahub.io/external-provider -o json 2>/dev/null | jq -r '.items[].spec.host' | sort -u)
+if [ -z "$hosts" ] || [ -z "$gw_pod" ]; then
+  skip "no external providers, or gateway pod not found"
 else
-  while read -r name idle; do
-    secs=${idle%s}
-    if [ "$idle" != "unset" ] && [[ "$secs" =~ ^[0-9]+$ ]] && [ "$secs" -lt 350 ]; then
-      pass "$name idleTimeout $idle"
+  clusters=$(oc exec -n openshift-ingress "$gw_pod" -- pilot-agent request GET "config_dump?resource=dynamic_active_clusters" 2>/dev/null)
+  for h in $hosts; do
+    ka=$(echo "$clusters" | jq -r --arg n "outbound|443||$h" '.configs[]? | .cluster | select(.name==$n) | .upstream_connection_options.tcp_keepalive.keepalive_time // empty' | head -1)
+    if [[ "$ka" =~ ^[0-9]+$ ]] && [ "$ka" -lt 350 ]; then
+      pass "$h: TCP keepalive after ${ka}s idle"
     else
-      fail "$name idleTimeout $idle: first calls after 6 idle minutes will get 503 (externalProviderIdleTimeout)"
+      fail "$h: no TCP keepalive below 350s on the gateway: first calls after 6 idle minutes will get 503 (externalProviderKeepalive)"
     fi
-  done <<< "$drs"
+  done
 fi
 
 # Each LLMInferenceService pins the RHOAI config templates it first saw in
