@@ -1,0 +1,177 @@
+# The two GPU MachineSets this demo runs on, for a fresh cluster (T29).
+#
+#   cluster-gpu-g5-worker-<zone>   g5.4xlarge,  1x NVIDIA A10G  -> qwen3-8b-fp8 (2 when up:
+#                                  one for the model, one for the autoscaler to land on)
+#   cluster-gpu-worker-<zone>      g6e.2xlarge, 1x NVIDIA L40S  -> nemotron-3-nano-30b-a3b
+#
+# What makes them right, beyond the instance type:
+# - Each selects on its OWN `machine.openshift.io/cluster-api-machineset` label, in both
+#   the selector and the template. The originals on the demo cluster were clones of the
+#   installer's worker MachineSet that kept its label, so all three MachineSets selected
+#   the same machines (T31): an orphaned machine could be adopted by any of them, and
+#   label lookups such as `oc get machines -l ...=cluster-gpu-...` found nothing. The
+#   selector is immutable, so getting it wrong means deleting and recreating.
+# - The taint `nvidia.com/gpu:NoSchedule` is in the template, so every new node is born
+#   with it (see gpu-machineset-taint.yaml for why it must not be applied by hand).
+# - 500 GiB root volume: the vLLM and modelcar images are tens of GB per node.
+# - Created at replicas 0. The `gpu-session` skill scales them up (2 and 1) and down,
+#   and it refers to them by these names, so keep them.
+#
+# Do not fill in the placeholders below by hand. Everything cluster-specific (AMI, IAM
+# instance profile, subnet, security groups, tags) is already correct in the worker
+# MachineSet the installer created, so clone that and change only the GPU parts. Checked
+# on the demo cluster on 2026-11-05: this reproduces its live GPU MachineSets exactly,
+# and both pass a server-side dry run.
+#
+#   SRC=$(oc get machineset -n openshift-machine-api -o name | grep -v -- '-gpu-' | grep -- '-worker-' | head -1)
+#   ZONE=us-east-2a   # the zone in $SRC's name; L40S capacity there has been short before
+#   for spec in "cluster-gpu-g5-worker-$ZONE:g5.4xlarge" "cluster-gpu-worker-$ZONE:g6e.2xlarge"; do
+#     name=${spec%%:*}; type=${spec##*:}
+#     oc get $SRC -n openshift-machine-api -o json | jq --arg n "$name" --arg t "$type" '
+#       del(.status, .metadata.uid, .metadata.resourceVersion, .metadata.creationTimestamp,
+#           .metadata.generation, .metadata.managedFields, .metadata.annotations)
+#       | .metadata.name = $n | .spec.replicas = 0
+#       | .spec.selector.matchLabels["machine.openshift.io/cluster-api-machineset"] = $n
+#       | .spec.template.metadata.labels["machine.openshift.io/cluster-api-machineset"] = $n
+#       | .spec.template.spec.providerSpec.value.instanceType = $t
+#       | .spec.template.spec.providerSpec.value.blockDevices[0].ebs.volumeSize = 500
+#       | .spec.template.spec.taints = [{"key":"nvidia.com/gpu","value":"","effect":"NoSchedule"}]' \
+#     | oc create -f -
+#   done
+#
+# Add `--dry-run=server` to `oc create` first to check. Then verify:
+#
+#   oc get machineset -n openshift-machine-api -o custom-columns=\
+# NAME:.metadata.name,SELECTOR:.spec.selector.matchLabels.machine\.openshift\.io/cluster-api-machineset,TYPE:.spec.template.spec.providerSpec.value.instanceType
+#
+# The NVIDIA GPU Operator and Node Feature Discovery must be installed for the nodes to
+# advertise `nvidia.com/gpu`; the model pods pin to a GPU type with
+# `nodeSelector: nvidia.com/gpu.product` (charts/maas-pulse/values.yaml).
+#
+# The resulting objects, for reference. <INFRA_ID> is the cluster's infrastructure name
+# (`oc get infrastructure cluster -o jsonpath='{.status.infrastructureName}'`).
+---
+apiVersion: machine.openshift.io/v1beta1
+kind: MachineSet
+metadata:
+  name: cluster-gpu-g5-worker-<ZONE>
+  namespace: openshift-machine-api
+  labels:
+    machine.openshift.io/cluster-api-cluster: <INFRA_ID>
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      machine.openshift.io/cluster-api-cluster: <INFRA_ID>
+      machine.openshift.io/cluster-api-machineset: cluster-gpu-g5-worker-<ZONE>
+  template:
+    metadata:
+      labels:
+        machine.openshift.io/cluster-api-cluster: <INFRA_ID>
+        machine.openshift.io/cluster-api-machine-role: worker
+        machine.openshift.io/cluster-api-machine-type: worker
+        machine.openshift.io/cluster-api-machineset: cluster-gpu-g5-worker-<ZONE>
+    spec:
+      taints:
+        - key: nvidia.com/gpu
+          value: ""
+          effect: NoSchedule
+      providerSpec:
+        value:
+          apiVersion: machine.openshift.io/v1beta1
+          kind: AWSMachineProviderConfig
+          instanceType: g5.4xlarge
+          ami:
+            id: <AMI_ID>                       # from the worker MachineSet
+          blockDevices:
+            - ebs:
+                encrypted: true
+                volumeSize: 500
+                volumeType: gp2
+          credentialsSecret:
+            name: aws-cloud-credentials
+          iamInstanceProfile:
+            id: <INFRA_ID>-worker-profile
+          placement:
+            availabilityZone: <ZONE>
+            region: <REGION>
+          securityGroups:
+            - filters:
+                - name: tag:Name
+                  values: [<INFRA_ID>-node]
+            - filters:
+                - name: tag:Name
+                  values: [<INFRA_ID>-lb]
+          subnet:
+            filters:
+              - name: tag:Name
+                values: [<INFRA_ID>-subnet-private-<ZONE>]
+          tags:
+            - name: kubernetes.io/cluster/<INFRA_ID>
+              value: owned
+            # plus whatever tags the worker MachineSet carries (the demo cluster's
+            # provisioning system adds its own)
+          userDataSecret:
+            name: worker-user-data
+---
+# Same as above except the name/labels and the instance type.
+apiVersion: machine.openshift.io/v1beta1
+kind: MachineSet
+metadata:
+  name: cluster-gpu-worker-<ZONE>
+  namespace: openshift-machine-api
+  labels:
+    machine.openshift.io/cluster-api-cluster: <INFRA_ID>
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      machine.openshift.io/cluster-api-cluster: <INFRA_ID>
+      machine.openshift.io/cluster-api-machineset: cluster-gpu-worker-<ZONE>
+  template:
+    metadata:
+      labels:
+        machine.openshift.io/cluster-api-cluster: <INFRA_ID>
+        machine.openshift.io/cluster-api-machine-role: worker
+        machine.openshift.io/cluster-api-machine-type: worker
+        machine.openshift.io/cluster-api-machineset: cluster-gpu-worker-<ZONE>
+    spec:
+      taints:
+        - key: nvidia.com/gpu
+          value: ""
+          effect: NoSchedule
+      providerSpec:
+        value:
+          apiVersion: machine.openshift.io/v1beta1
+          kind: AWSMachineProviderConfig
+          instanceType: g6e.2xlarge
+          ami:
+            id: <AMI_ID>
+          blockDevices:
+            - ebs:
+                encrypted: true
+                volumeSize: 500
+                volumeType: gp2
+          credentialsSecret:
+            name: aws-cloud-credentials
+          iamInstanceProfile:
+            id: <INFRA_ID>-worker-profile
+          placement:
+            availabilityZone: <ZONE>
+            region: <REGION>
+          securityGroups:
+            - filters:
+                - name: tag:Name
+                  values: [<INFRA_ID>-node]
+            - filters:
+                - name: tag:Name
+                  values: [<INFRA_ID>-lb]
+          subnet:
+            filters:
+              - name: tag:Name
+                values: [<INFRA_ID>-subnet-private-<ZONE>]
+          tags:
+            - name: kubernetes.io/cluster/<INFRA_ID>
+              value: owned
+          userDataSecret:
+            name: worker-user-data

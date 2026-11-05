@@ -1,5 +1,8 @@
 # Taint GPU nodes from the MachineSet, not by hand.
 #
+# For creating the GPU MachineSets from scratch, with this taint and their own selector
+# labels already in place, see gpu-machinesets.yaml.
+#
 # Why: the taint used to be applied manually to running nodes, so it was lost every
 # time the GPU MachineSets were scaled to 0 and back up — which is this project's normal
 # daily rhythm. On 2026-10-15 all three GPU nodes came back with no taint at all.
