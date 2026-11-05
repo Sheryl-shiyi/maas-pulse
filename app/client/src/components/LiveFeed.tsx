@@ -1,7 +1,8 @@
 import type { FeedEntry } from '../types';
 import { providerOf } from './providerLogos';
+import { userColors } from './colors';
 
-interface Named { name: string; displayName: string }
+interface Named { name: string; displayName: string; tier?: string }
 
 interface LiveFeedProps {
   entries: FeedEntry[];
@@ -13,6 +14,9 @@ interface LiveFeedProps {
 
 export function LiveFeed({ entries, users = [], models = [] }: LiveFeedProps) {
   const userName = (n: string) => users.find(u => u.name === n)?.displayName ?? n;
+  // The same tier colours as the topology, so a feed entry and its dot match.
+  const colors = userColors(users);
+  const userColor = (n: string) => colors[users.findIndex(u => u.name === n)] ?? '#42a5f5';
   const modelName = (n: string) => models.find(m => m.name === n)?.displayName ?? n;
   return (
     <div style={styles.container}>
@@ -24,7 +28,7 @@ export function LiveFeed({ entries, users = [], models = [] }: LiveFeedProps) {
         {entries.map(entry => (
           <div key={entry.id} style={styles.entry}>
             <div style={styles.header}>
-              <span style={styles.user}>{userName(entry.user)}</span>
+              <span style={{ ...styles.user, color: userColor(entry.user) }}>{userName(entry.user)}</span>
               <span style={styles.arrow}>&rarr;</span>
               <span style={styles.model}>{modelName(entry.model)}</span>
               {entry.rateLimited ? (

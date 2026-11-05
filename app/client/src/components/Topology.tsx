@@ -2,8 +2,8 @@ import { useRef, useEffect, useCallback, useState } from 'react';
 import { HelpPopover, type HelpTarget } from './TopologyHelp';
 import type { ModelState, UserState, ActiveRequest, Stats, GatewayStage } from '../types';
 import { providerOf, providerLabel, drawProviderLogo } from './providerLogos';
+import { userColors } from './colors';
 
-const USER_COLORS = ['#42a5f5', '#66bb6a', '#ffa726', '#ab47bc', '#ef5350', '#26c6da', '#ec407a', '#8d6e63'];
 const STATUS_COLORS: Record<string, string> = { healthy: '#4caf50', busy: '#ff9800', overloaded: '#f44336' };
 const RATE_LIMITED_COLOR = '#475569';
 const QUEUE_COLOR = '#ef4444';
@@ -15,6 +15,19 @@ const CACHE_COLOR = '#38bdf8';
  */
 const EXTERNAL_COLOR = '#4f46e5';
 const CAPTION_COLOR = 'rgba(148, 163, 184, 0.85)';
+/** Card background shared by the tier bands, the gateway and the model cards. */
+const CARD_FILL = '#0f172a';
+/** Connection lines: bright enough to read on a projector, still behind everything. */
+const EDGE_COLOR = '#334155';
+
+/**
+ * All canvas text is drawn this much larger than the sizes written in this file, so the
+ * small print (captions, limits, gateway details) stays legible on a projector.
+ */
+const TEXT_SCALE = 1.15;
+function font(size: number, weight = '', family = '-apple-system, sans-serif'): string {
+  return `${weight} ${Math.round(size * TEXT_SCALE * 2) / 2}px ${family}`.trim();
+}
 const GATEWAY_COLOR = '#ff9800';
 /** MaaS refused the request: its own token limit, authentication or access. */
 const BLOCKED_COLOR = '#ef4444';
@@ -82,9 +95,12 @@ interface Band {
 
 interface Rect { x: number; y: number; w: number; h: number }
 
-const GATEWAY_HEADER_H = 34;
+const GATEWAY_HEADER_H = 36;
 /** Height a model box needs below it for the load and cache bars. */
-const BARS_H = 44;
+const BARS_H = 50;
+/** The model column's group frames: two-line header, then padding around the boxes. */
+const MODEL_GROUP_HEAD = 30;
+const MODEL_GROUP_PAD = 8;
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
@@ -113,8 +129,11 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
       if (!tierOrder.includes(key)) tierOrder.push(key);
     }
     const bandX = 14;
-    const bandW = clamp(w * 0.22, 200, 250);
-    const limitRows = Math.ceil(Math.max(models.length, 1) / 2);
+    const bandW = clamp(w * 0.22, 210, 260);
+    // Internal models in the left column of each tier's limits, external ones in the
+    // right, so the rows are as many as the longer of the two lists.
+    const internalCount = models.filter(m => m.type === 'internal').length;
+    const limitRows = Math.max(internalCount, models.length - internalCount, 1);
     const gaps = Math.max(tierOrder.length - 1, 0);
     const sizeFor = (pad: number, headerH: number, limitRowH: number, gap: number) => {
       const bandFixed = pad * 2 + headerH + limitRows * limitRowH + 4;
@@ -122,12 +141,12 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
     };
     // Compact spacing when the roomy one would leave users less than 22px each, as on a
     // laptop whose controls bar has wrapped onto a second line.
-    const roomy = sizeFor(8, 16, 13, 10);
-    const sz = h - 16 - roomy.fixed >= users.length * 22 ? roomy : sizeFor(5, 13, 11, 6);
+    const roomy = sizeFor(8, 18, 15, 10);
+    const sz = h - 16 - roomy.fixed >= users.length * 24 ? roomy : sizeFor(5, 15, 13, 6);
     const BAND_PAD = sz.pad, BAND_HEADER_H = sz.headerH, LIMIT_ROW_H = sz.limitRowH, BAND_GAP = sz.gap;
     const bandFixed = sz.bandFixed;
     const fixed = sz.fixed;
-    const rowH = users.length > 0 ? clamp((h - 16 - fixed) / users.length, 16, 40) : 24;
+    const rowH = users.length > 0 ? clamp((h - 16 - fixed) / users.length, 18, 40) : 24;
     const total = fixed + rowH * users.length;
 
     const userPositions: { y: number; anchorX: number }[] = new Array(users.length);
@@ -148,11 +167,11 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
     }
 
     const modelX = w * 0.84;
-    const modelLeft = modelX - 88;
+    const modelLeft = modelX - 105;
     const gatewayX = (bandX + bandW + modelLeft) / 2;
     const gatewayY = h * 0.5;
-    const gwW = clamp(w * 0.2, 190, 236);
-    const stageH = clamp((h * 0.55 - GATEWAY_HEADER_H) / STAGES.length, 32, 46);
+    const gwW = clamp(w * 0.23, 232, 262);
+    const stageH = clamp((h * 0.55 - GATEWAY_HEADER_H) / STAGES.length, 36, 50);
     const gwH = GATEWAY_HEADER_H + stageH * STAGES.length + 6;
     const gateway: Rect = { x: gatewayX - gwW / 2, y: gatewayY - gwH / 2, w: gwW, h: gwH };
 
@@ -183,17 +202,13 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
     function draw() {
       if (!running) return;
       const { users, models, activeRequests, stats, gatewayFlash } = propsRef.current;
-      const w = canvas!.width / devicePixelRatio;
-      const h = canvas!.height / devicePixelRatio;
-      const layout = getLayout(w, h);
+      const cssW = canvas!.width / devicePixelRatio;
+      const cssH = canvas!.height / devicePixelRatio;
       const now = performance.now();
 
-      ctx.clearRect(0, 0, w, h);
-      const regions: HelpTarget[] = [];
-
       // Compute model box positions (one box per replica)
-      const modelRectW = 176;
-      const modelRectH = 56;
+      const modelRectW = 190;
+      const modelRectH = 58;
       const boxes: { modelIdx: number; replicaIdx: number; provisioning: boolean; x: number; y: number }[] = [];
       for (let i = 0; i < models.length; i++) {
         const m = models[i]!;
@@ -202,30 +217,64 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
           boxes.push({ modelIdx: i, replicaIdx: r, provisioning: r >= m.replicas, x: 0, y: 0 });
         }
       }
-      // Spread the boxes by the room each really takes: an internal model's box has its
-      // two bars underneath. Spacing by count alone let one box's bars run into the
-      // next box on a short screen.
-      const heights = boxes.map(b => modelRectH + (models[b.modelIdx]!.type === 'internal' && !b.provisioning ? BARS_H : 0));
-      const spare = Math.max(h - heights.reduce((a, b) => a + b, 0), 0) / (boxes.length + 1);
-      let top = spare;
-      for (let i = 0; i < boxes.length; i++) {
-        boxes[i]!.x = layout.modelX;
-        boxes[i]!.y = top + modelRectH / 2;
-        top += heights[i]! + spare;
+
+      // On a short canvas (a 720p projector, a wrapped controls bar) draw the whole view
+      // smaller rather than let the user column or the model column run off the bottom:
+      // lay it out on a virtual canvas tall enough for everything, then scale it down.
+      // Text then shrinks towards its original size, never below it.
+      const fit = Math.min(1, cssH / minHeightFor(users, models, boxes, modelRectH));
+      const w = cssW / fit;
+      const h = cssH / fit;
+      const layout = getLayout(w, h);
+
+      ctx.clearRect(0, 0, cssW, cssH);
+      ctx.save();
+      ctx.scale(fit, fit);
+      const regions: HelpTarget[] = [];
+      // The model column in two groups, framed like the tier bands: replicas on our own
+      // GPUs, then the external providers. That split is the point of MaaS, so it is
+      // drawn rather than left to colour. Boxes are spread by the room each takes (an
+      // internal box has its two bars underneath), so one never runs into the next.
+      const boxH = (b: typeof boxes[number]) =>
+        modelRectH + (models[b.modelIdx]!.type === 'internal' && !b.provisioning ? BARS_H : 0);
+      const groups = [
+        { label: 'ON OUR GPUs', note: 'AI Inference on OpenShift AI', external: false, members: boxes.filter(b => models[b.modelIdx]!.type === 'internal') },
+        { label: 'EXTERNAL PROVIDERS', note: 'via the MaaS gateway', external: true, members: boxes.filter(b => models[b.modelIdx]!.type !== 'internal') },
+      ].filter(g => g.members.length > 0);
+      const contentH = boxes.reduce((a, b) => a + boxH(b), 0) + groups.length * (MODEL_GROUP_HEAD + 2 * MODEL_GROUP_PAD);
+      const innerGaps = groups.reduce((a, g) => a + g.members.length - 1, 0);
+      const spare = Math.max(0, h - contentH);
+      const inner = innerGaps > 0 ? Math.min(28, (spare * 0.5) / innerGaps) : 0;
+      const outer = (spare - inner * innerGaps) / (groups.length + 1);
+      let cursor = outer;
+      const frameX = layout.modelX - modelRectW / 2 - 10;
+      const frameW = modelRectW + 20;
+      for (const g of groups) {
+        const top = cursor;
+        cursor += MODEL_GROUP_HEAD + MODEL_GROUP_PAD;
+        g.members.forEach((b, i) => {
+          b.x = layout.modelX;
+          b.y = cursor + modelRectH / 2;
+          cursor += boxH(b) + (i < g.members.length - 1 ? inner : 0);
+        });
+        cursor += MODEL_GROUP_PAD;
+        drawModelGroup(ctx, frameX, top, frameW, cursor - top, g.label, g.note, g.external);
+        cursor += outer;
       }
 
       // Edges: every user into the gateway's left side, the gateway's right side out to
       // every model replica.
       for (const uPos of layout.userPositions) {
-        drawCurve(ctx, uPos.anchorX, uPos.y, layout.entry.x, layout.entry.y, '#1e293b');
+        drawCurve(ctx, uPos.anchorX, uPos.y, layout.entry.x, layout.entry.y, EDGE_COLOR);
       }
       for (const box of boxes) {
-        drawCurve(ctx, layout.exit.x, layout.exit.y, box.x, box.y, box.provisioning ? '#111827' : '#1e293b');
+        drawCurve(ctx, layout.exit.x, layout.exit.y, box.x, box.y, box.provisioning ? '#1e293b' : EDGE_COLOR);
       }
 
       // Particles. A request the gateway turned away finishes its trip to the gateway,
       // then bounces back in red; it is drawn after the gateway so the bounce shows.
       const bounced: { x: number; y: number }[] = [];
+      const colors = userColors(users);
       for (const req of activeRequests) {
         const elapsed = now - req.startTime;
         const userIdx = users.findIndex(u => u.name === req.user);
@@ -234,7 +283,7 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
 
         const u = layout.userPositions[userIdx]!;
         const uX = u.anchorX, uY = u.y;
-        const color = USER_COLORS[userIdx % USER_COLORS.length]!;
+        const color = colors[userIdx]!;
 
         if (req.rejectedAt) {
           if (req.phase !== 'to_gateway') continue;
@@ -268,7 +317,7 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
       drawGateway(ctx, layout.gateway, layout.stageH, stats, gatewayFlash, now, regions);
       for (const p of bounced) drawBounced(ctx, p);
 
-      for (const band of layout.bands) drawBand(ctx, band, users, models);
+      for (const band of layout.bands) drawBand(ctx, band, users, models, colors);
 
       // Draw model boxes (one per replica)
       for (const box of boxes) {
@@ -291,7 +340,7 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
           drawText(ctx, `${model.displayName} #${box.replicaIdx + 1}`, box.x, box.y - 8, '#f59e0b', 13, 'bold');
           const since = model.scalingSince ? Math.max(0, Math.floor((Date.now() - model.scalingSince) / 1000)) : null;
           const clock = since === null ? '' : ` · ${Math.floor(since / 60)}:${String(since % 60).padStart(2, '0')}`;
-          drawText(ctx, `starting vLLM on a new GPU${clock}`, box.x, box.y + 12, 'rgba(245, 158, 11, 0.85)', 10);
+          drawText(ctx, `starting on a new GPU${clock}`, box.x, box.y + 12, 'rgba(245, 158, 11, 0.85)', 10);
         } else {
           // A replica that is Ready but has not been scraped yet has no figures of its
           // own. It must not borrow the model-level summary: with only one replica
@@ -300,20 +349,27 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
           const stat = model.replicaStats[box.replicaIdx];
           const external = model.type !== 'internal';
           const statusColor = external ? EXTERNAL_COLOR : stat ? (STATUS_COLORS[stat.status] || '#4caf50') : '#475569';
-          drawRoundedRect(ctx, box.x - modelRectW / 2, box.y - modelRectH / 2, modelRectW, modelRectH, 10, statusColor);
+          // A dark card like every other node, its state in the border and a small label.
+          // A solid green box was the loudest thing on screen while saying the least:
+          // healthy is the state that needs no attention. Busy and overloaded also glow.
+          drawCard(ctx, box.x - modelRectW / 2, box.y - modelRectH / 2, modelRectW, modelRectH,
+            statusColor, !external && !!stat && stat.status !== 'healthy');
+          if (!external) {
+            drawStatusPill(ctx, box.x + modelRectW / 2, box.y - modelRectH / 2, stat ? stat.status : 'no data', statusColor);
+          }
           const label = totalBoxes > 1 ? `${model.displayName} #${box.replicaIdx + 1}` : model.displayName;
-          drawText(ctx, label, box.x, box.y - 8, '#fff', 13, 'bold');
+          drawText(ctx, label, box.x, box.y - 8, '#f1f5f9', 13, 'bold');
           const boxRect = { x: box.x - modelRectW / 2, y: box.y - modelRectH / 2, w: modelRectW, h: modelRectH };
           regions.push({ topic: external ? 'external' : 'replica', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: boxRect });
           if (!external) {
             // Say what is serving here. Running, queued and the hit rate have bars of
             // their own below; the KV cache, one of the two scale-up triggers, does not.
             const detail = stat ? `vLLM · KV cache ${stat.kvCachePercent}%` : 'vLLM · awaiting metrics';
-            drawText(ctx, detail, box.x, box.y + 12, 'rgba(255,255,255,0.8)', 10);
+            drawText(ctx, detail, box.x, box.y + 12, '#94a3b8', 10);
           } else {
             const provider = providerOf(model.name);
-            if (provider) drawProviderLogo(ctx, provider, box.x - modelRectW / 2 + 22, box.y, 22);
-            drawText(ctx, providerLabel(provider), box.x, box.y + 12, 'rgba(255,255,255,0.8)', 11);
+            if (provider) drawProviderLogo(ctx, provider, box.x - modelRectW / 2 + 22, box.y, 22, '#c7d2fe');
+            drawText(ctx, providerLabel(provider), box.x, box.y + 12, '#a5b4fc', 11);
           }
 
           // Below the box: how much work this replica is holding, and how warm its
@@ -334,24 +390,28 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
             const barY = box.y + modelRectH / 2 + 6;
             drawLoadBar(ctx, barX, barY, modelRectW, eased.running, eased.queued, statusColor);
             const queued = stat.queuedRequests;
-            drawCaption(ctx, barX, barY + 14, modelRectW, `In flight (of ${LOAD_BAR_SCALE})`,
+            drawCaption(ctx, barX, barY + 16, modelRectW, `In flight (of ${LOAD_BAR_SCALE})`,
               queued > 0 ? `${stat.runningRequests} + ${queued} queued` : `${stat.runningRequests} running`,
               queued > 0 ? QUEUE_COLOR : CAPTION_COLOR);
-            regions.push({ topic: 'inflight', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: { x: barX, y: barY - 2, w: modelRectW, h: 21 } });
-            const cacheY = barY + 22;
+            regions.push({ topic: 'inflight', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: { x: barX, y: barY - 2, w: modelRectW, h: 24 } });
+            const cacheY = barY + 25;
             drawCacheBar(ctx, barX, cacheY, modelRectW, eased.cache, stat.cacheHitPercent === null);
             // "off" when this vLLM does not prefix-cache at all (Nemotron, a hybrid Mamba
             // model), which is different from "idle": no recent traffic to measure.
-            drawCaption(ctx, barX, cacheY + 11, modelRectW, 'Cache hit rate',
+            drawCaption(ctx, barX, cacheY + 13, modelRectW, 'Cache hit rate',
               stat.prefixCaching === false ? 'off'
                 : stat.cacheHitPercent === null ? 'idle' : `${stat.cacheHitPercent}%`,
               CAPTION_COLOR);
-            regions.push({ topic: 'cache', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: { x: barX, y: cacheY - 3, w: modelRectW, h: 20 } });
+            regions.push({ topic: 'cache', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: { x: barX, y: cacheY - 3, w: modelRectW, h: 23 } });
           }
         }
       }
 
-      regionsRef.current = regions;
+      ctx.restore();
+      // Clickable areas in real canvas pixels, for hit testing and placing popovers.
+      regionsRef.current = regions.map(g => ({
+        ...g, rect: { x: g.rect.x * fit, y: g.rect.y * fit, w: g.rect.w * fit, h: g.rect.h * fit },
+      }));
       animRef.current = requestAnimationFrame(draw);
     }
 
@@ -403,6 +463,88 @@ function getModelShortName(key: string, models: ModelState[]): string {
   const model = models.find(m => m.name.endsWith(key) || m.name === key);
   if (model) return model.displayName.split(' ')[0]!.slice(0, 10);
   return key.split('-')[0]!.slice(0, 10);
+}
+
+/**
+ * The least height the view needs at full size: the taller of the user column in its
+ * compact spacing, the model column with minimal gaps, and the gateway card. Below
+ * this, the view is drawn scaled down to fit.
+ */
+function minHeightFor(
+  users: UserState[], models: ModelState[],
+  boxes: { modelIdx: number; provisioning: boolean }[], modelRectH: number,
+): number {
+  const tiers = new Set(users.map(u => u.tier || '')).size;
+  const internal = models.filter(m => m.type === 'internal').length;
+  const limitRows = Math.max(internal, models.length - internal, 1);
+  const left = tiers * (5 * 2 + 15 + limitRows * 13 + 4) + 6 * Math.max(tiers - 1, 0) + users.length * 18 + 16;
+  const groupsUsed = new Set(boxes.map(b => models[b.modelIdx]!.type === 'internal')).size;
+  const right = boxes.reduce((a, b) => a + modelRectH + (models[b.modelIdx]!.type === 'internal' && !b.provisioning ? BARS_H : 0), 0)
+    + groupsUsed * (MODEL_GROUP_HEAD + 2 * MODEL_GROUP_PAD) + 8 * Math.max(boxes.length - groupsUsed, 0) + 10 * (groupsUsed + 1);
+  const gateway = GATEWAY_HEADER_H + 36 * STAGES.length + 6 + 20;
+  return Math.max(left, right, gateway);
+}
+
+/** One of the model column's two groups, styled like the tier bands on the left. */
+function drawModelGroup(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number, h: number,
+  label: string, note: string, external: boolean,
+): void {
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, 10);
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.06)';
+  ctx.strokeStyle = external ? 'rgba(129, 140, 248, 0.35)' : 'rgba(148, 163, 184, 0.22)';
+  ctx.lineWidth = 1;
+  ctx.fill();
+  ctx.stroke();
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.font = font(10, 'bold', 'system-ui, sans-serif');
+  ctx.fillStyle = external ? '#a5b4fc' : '#94a3b8';
+  ctx.fillText(label, x + 9, y + 11);
+  ctx.font = font(9, '', 'system-ui, sans-serif');
+  ctx.fillStyle = '#64748b';
+  ctx.fillText(note, x + 9, y + 23);
+  ctx.restore();
+}
+
+/** A node card: dark fill, coloured border, and a glow when it needs attention. */
+function drawCard(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, border: string, glow: boolean): void {
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, 10);
+  ctx.fillStyle = CARD_FILL;
+  if (glow) {
+    ctx.shadowColor = border;
+    ctx.shadowBlur = 18;
+  }
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = border;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** A small label sitting on a card's top edge, at the right: healthy, busy, overloaded. */
+function drawStatusPill(ctx: CanvasRenderingContext2D, cardRight: number, cardTop: number, text: string, color: string): void {
+  ctx.save();
+  ctx.font = font(9, 'bold');
+  const w = ctx.measureText(text).width + 12;
+  const h = 15;
+  const x = cardRight - w - 10;
+  const y = cardTop - h / 2;
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, h / 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.fillStyle = CARD_FILL;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, x + w / 2, y + h / 2 + 0.5);
+  ctx.restore();
 }
 
 function drawParticle(ctx: CanvasRenderingContext2D, pos: { x: number; y: number }, color: string): void {
@@ -471,12 +613,12 @@ function drawGateway(
   ctx.restore();
 
   drawHexagon(ctx, card.x + 20, card.y + GATEWAY_HEADER_H / 2, 9, GATEWAY_COLOR);
-  ctx.font = 'bold 14px -apple-system, sans-serif';
+  ctx.font = font(14, 'bold');
   ctx.fillStyle = '#fff';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.fillText('MaaS Gateway', card.x + 36, card.y + GATEWAY_HEADER_H / 2 + 1);
-  ctx.font = '9px -apple-system, sans-serif';
+  ctx.font = font(9);
   ctx.fillStyle = '#64748b';
   ctx.textAlign = 'right';
   ctx.fillText('click a step', card.x + card.w - 12, card.y + GATEWAY_HEADER_H / 2 + 1);
@@ -519,19 +661,19 @@ function drawGateway(
 
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.font = 'bold 12px -apple-system, sans-serif';
+    ctx.font = font(12, 'bold');
     ctx.fillStyle = '#e2e8f0';
     ctx.fillText(stage.title, card.x + 36, cy - 7);
-    ctx.font = '10px -apple-system, sans-serif';
+    ctx.font = font(10);
     ctx.fillStyle = '#94a3b8';
     ctx.fillText(stage.detail, card.x + 36, cy + 8);
 
     const { value, label } = counts[stage.key];
     ctx.textAlign = 'right';
-    ctx.font = 'bold 12px -apple-system, sans-serif';
+    ctx.font = font(12, 'bold');
     ctx.fillStyle = stage.refuses && value > 0 ? '#f87171' : value > 0 ? '#cbd5e1' : '#475569';
     ctx.fillText(formatCount(value), card.x + card.w - 12, cy - 7);
-    ctx.font = '9px -apple-system, sans-serif';
+    ctx.font = font(9);
     ctx.fillStyle = '#64748b';
     ctx.fillText(label, card.x + card.w - 12, cy + 8);
   });
@@ -548,7 +690,7 @@ function splitLimit(text: string): { limit: string; window: string | null } {
  * is currently paused on. Red is MaaS refusing (the tier's token limit), amber is the
  * provider behind an external model refusing (its own rate limit), which MaaS cannot help.
  */
-function drawBand(ctx: CanvasRenderingContext2D, band: Band, users: UserState[], models: ModelState[]): void {
+function drawBand(ctx: CanvasRenderingContext2D, band: Band, users: UserState[], models: ModelState[], colors: string[]): void {
   const { pad: BAND_PAD, headerH: BAND_HEADER_H, limitRowH: LIMIT_ROW_H } = band;
   ctx.save();
   ctx.beginPath();
@@ -567,35 +709,44 @@ function drawBand(ctx: CanvasRenderingContext2D, band: Band, users: UserState[],
       .map(i => Object.entries(users[i]!.rateLimits).find(([k]) => m.name === k || m.name.endsWith(k))?.[1])
       .filter((v): v is string => v !== undefined);
     const distinct = [...new Set(values)];
-    return { name: getModelShortName(m.name, models), text: distinct.length === 0 ? null : distinct.length === 1 ? distinct[0]! : 'varies' };
+    return {
+      name: getModelShortName(m.name, models),
+      external: m.type !== 'internal',
+      text: distinct.length === 0 ? null : distinct.length === 1 ? distinct[0]! : 'varies',
+    };
   });
+  // Our GPUs on the left, external providers on the right, each in model order.
+  const slot: { col: number; row: number }[] = [];
+  let nIn = 0, nOut = 0;
+  for (const c of cells) slot.push(c.external ? { col: 1, row: nOut++ } : { col: 0, row: nIn++ });
   const parsed = cells.map(c => (c.text ? splitLimit(c.text) : null));
   const perMinute = parsed.every(p => p === null || p.window === '1m');
 
   const headerY = band.y + BAND_PAD + BAND_HEADER_H / 2 - 1;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';
-  ctx.font = 'bold 10px system-ui, sans-serif';
+  ctx.font = font(10, 'bold', 'system-ui, sans-serif');
   ctx.fillStyle = '#94a3b8';
   ctx.fillText(band.label, band.x + BAND_PAD, headerY);
   ctx.textAlign = 'right';
-  ctx.font = '9px system-ui, sans-serif';
+  ctx.font = font(9, '', 'system-ui, sans-serif');
   ctx.fillStyle = '#64748b';
   ctx.fillText(perMinute ? 'tokens/min per user' : 'tokens per user', band.x + band.w - BAND_PAD, headerY);
 
   const colW = (band.w - BAND_PAD * 2) / 2;
   const anyLimits = cells.some(c => c.text !== null);
   cells.forEach((c, k) => {
-    const cx = band.x + BAND_PAD + (k % 2) * colW;
-    const cy = band.limitsY + Math.floor(k / 2) * LIMIT_ROW_H + LIMIT_ROW_H / 2;
+    const cx = band.x + BAND_PAD + slot[k]!.col * colW;
+    const cy = band.limitsY + slot[k]!.row * LIMIT_ROW_H + LIMIT_ROW_H / 2;
     ctx.textAlign = 'left';
-    ctx.font = '10px -apple-system, sans-serif';
-    ctx.fillStyle = '#94a3b8';
+    ctx.font = font(10);
+    // External model names take a tint of the indigo their boxes are drawn in.
+    ctx.fillStyle = c.external ? '#a5b4fc' : '#94a3b8';
     ctx.fillText(c.name, cx, cy);
     const p = parsed[k];
     const value = !anyLimits ? '…' : p === null ? '–' : perMinute ? p.limit : c.text!;
     ctx.textAlign = 'right';
-    ctx.font = 'bold 10px -apple-system, sans-serif';
+    ctx.font = font(10, 'bold');
     ctx.fillStyle = '#cbd5e1';
     ctx.fillText(value, cx + colW - 10, cy);
   });
@@ -611,10 +762,10 @@ function drawBand(ctx: CanvasRenderingContext2D, band: Band, users: UserState[],
     const allBlocked = models.length > 0 && byGateway.length >= models.length;
 
     const dotX = band.x + BAND_PAD + r;
-    drawCircle(ctx, dotX, y, r, allBlocked ? RATE_LIMITED_COLOR : USER_COLORS[i % USER_COLORS.length]!);
+    drawCircle(ctx, dotX, y, r, allBlocked ? RATE_LIMITED_COLOR : colors[i]!);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.font = `bold ${nameSize}px -apple-system, sans-serif`;
+    ctx.font = font(nameSize, 'bold');
     ctx.fillStyle = allBlocked ? '#94a3b8' : '#fff';
     const nameX = dotX + r + 8;
     ctx.fillText(user.displayName, nameX, y + 0.5);
@@ -667,7 +818,7 @@ function drawStatus(
     ctx.fillRect(x + 4.4, y - 2, 1.3, 3.5);
     ctx.fillRect(x + 4.4, y + 2.4, 1.3, 1.2);
   }
-  ctx.font = 'bold 10px -apple-system, sans-serif';
+  ctx.font = font(10, 'bold');
   ctx.fillStyle = color;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
@@ -692,7 +843,7 @@ function drawCaption(
   x: number, y: number, w: number,
   label: string, value: string, valueColor: string,
 ): void {
-  ctx.font = '9px -apple-system, sans-serif';
+  ctx.font = font(9);
   ctx.textBaseline = 'middle';
   ctx.fillStyle = CAPTION_COLOR;
   ctx.textAlign = 'left';
@@ -703,10 +854,10 @@ function drawCaption(
   ctx.strokeStyle = 'rgba(148, 163, 184, 0.7)';
   ctx.lineWidth = 1;
   ctx.stroke();
-  ctx.font = 'bold 7px -apple-system, sans-serif';
+  ctx.font = font(7, 'bold');
   ctx.textAlign = 'center';
   ctx.fillText('i', ix, y + 0.5);
-  ctx.font = 'bold 9px -apple-system, sans-serif';
+  ctx.font = font(9, 'bold');
   ctx.fillStyle = valueColor;
   ctx.textAlign = 'right';
   ctx.fillText(value, x + w, y);
@@ -832,15 +983,9 @@ function drawHexagon(ctx: CanvasRenderingContext2D, x: number, y: number, r: num
   ctx.fill();
 }
 
-function drawRoundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number, color: string) {
-  ctx.beginPath();
-  ctx.roundRect(x, y, w, h, r);
-  ctx.fillStyle = color;
-  ctx.fill();
-}
 
 function drawText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color: string, size: number, weight: string = 'normal') {
-  ctx.font = `${weight} ${size}px -apple-system, sans-serif`;
+  ctx.font = font(size, weight === 'normal' ? '' : weight);
   ctx.fillStyle = color;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';

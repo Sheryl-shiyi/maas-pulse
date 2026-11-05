@@ -117,9 +117,6 @@ export function Controls({ models, users, trafficRunning, connected, send }: Con
           )}
         </div>
 
-        <div style={{ ...styles.status, color: connected ? '#4caf50' : '#f44336' }}>
-          {connected ? 'Connected' : 'Disconnected'}
-        </div>
       </div>
 
       {/* What the current choices will actually send, in words an audience can follow.
@@ -201,8 +198,7 @@ const styles: Record<string, React.CSSProperties> = {
   slider: { width: 100 },
   startBtn: { background: '#4caf50', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer' },
   stopBtn: { background: '#f44336', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer' },
-  status: { fontSize: 12, fontWeight: 600, marginLeft: 'auto' },
-  hint: { display: 'flex', gap: 24, flexWrap: 'wrap', fontSize: 11, color: '#94a3b8', margin: '-2px 0 8px' },
+  hint: { display: 'flex', columnGap: 24, rowGap: 2, flexWrap: 'wrap', fontSize: 11, color: '#94a3b8', margin: '-2px 0 8px' },
   hintKey: { color: '#cbd5e1', fontWeight: 600 },
   chips: { display: 'flex', alignItems: 'center', gap: 6 },
   chipLabel: { fontSize: 12, color: '#64748b' },
