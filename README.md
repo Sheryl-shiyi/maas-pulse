@@ -44,6 +44,8 @@ The gateway is drawn as the policy pipeline every request passes through: **Auth
 
 Users are grouped by subscription tier. Each tier shows its per-user limits once, because every member shares them, and each user row names the models that user is currently paused on: in red when MaaS refused (the tier's token limit), in amber when the provider behind an external model refused (for example Google's free-tier quota), which is a 429 from upstream and not a MaaS limit.
 
+Each internal box is labelled as the vLLM server it is (`vLLM · KV cache 23%`). Clicking a bar's caption, a model box or one of the gateway's steps opens a short plain-language explanation with the live reading: what "in flight" and continuous batching mean, what a cache hit saves and why a new replica starts low, what one replica is (one vLLM server on one GPU, with room in its KV cache for so many tokens), and what each gateway step checks. A line under the traffic controls says what the chosen pattern and prompt shape will send. When the autoscaler adds or removes a replica, a notice under the topology says why: each condition it checks, the reading, the limit, and which one fired. It stays until dismissed, while the new replica's box counts how long it has been starting.
+
 External models have no replica metrics, so they are drawn in indigo with their provider's mark (OpenAI, Google) instead of a health colour. Users appear under the same short names everywhere (`free:user1`, `pro:user4`, `max:user7`, `admin`): in the topology, the live feed, the Cost & Chargeback view, and RHOAI's own observability dashboard. The chart's TelemetryPolicy shortens the ServiceAccount identity `system:serviceaccount:maas-tier-free:user1` to that form in the metrics themselves.
 
 ### See it in action

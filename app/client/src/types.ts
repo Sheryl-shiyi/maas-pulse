@@ -25,6 +25,8 @@ export interface ReplicaStatus {
   /** Whether this replica's vLLM has prefix caching enabled at all; null when unknown.
    *  False means the hit rate is not "idle" but simply not applicable. */
   prefixCaching: boolean | null;
+  /** Tokens of context this replica's KV cache can hold; null when not reported. */
+  kvCapacityTokens: number | null;
   status: ModelStatus;
 }
 export type PromptShape = 'short' | 'shared-prefix' | 'unique-prefix';
@@ -41,6 +43,7 @@ export type ServerEvent =
   | { type: 'rate_limit_reset'; user: string; model: string }
   | { type: 'rate_limit_update'; user: string; rateLimits: Record<string, string> }
   | { type: 'scale_update'; model: string; replicas: number; desiredReplicas: number }
+  | { type: 'scale_event'; model: string; direction: 'up' | 'down'; from: number; to: number; summary: string; checks: ScaleCheck[]; at: number }
   | { type: 'traffic_started'; pattern: TrafficPattern }
   | { type: 'traffic_stopped' };
 
@@ -62,6 +65,23 @@ export interface ActiveRequest {
 }
 
 export type LimitSource = 'gateway' | 'provider';
+
+/** One condition the autoscaler checked, with the reading it compared. */
+export interface ScaleCheck { label: string; value: number; limit: number; unit: string; tripped: boolean }
+
+/** A scaling decision shown to the audience until someone dismisses it. */
+export interface ScaleNotice {
+  id: string;
+  model: string;
+  modelDisplayName: string;
+  direction: 'up' | 'down';
+  from: number;
+  to: number;
+  summary: string;
+  checks: ScaleCheck[];
+  /** Client clock (Date.now()) when the notice arrived. */
+  at: number;
+}
 
 /** The checks the MaaS gateway applies to every request, in order. */
 export type GatewayStage = 'auth' | 'access' | 'limit' | 'route' | 'meter';
@@ -96,6 +116,8 @@ export interface ModelState {
   kvCachePercent: number;
   replicas: number;
   desiredReplicas: number;
+  /** When the current scale-up was first seen (Date.now()), while a replica is starting. */
+  scalingSince?: number;
   /** One entry per live replica, in display order. Empty until the first poll. */
   replicaStats: ReplicaStatus[];
 }

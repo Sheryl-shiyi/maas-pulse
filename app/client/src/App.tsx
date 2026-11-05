@@ -6,7 +6,8 @@ import { LiveFeed } from './components/LiveFeed';
 import { MetricsPanel } from './components/MetricsPanel';
 import { ChargebackView } from './components/ChargebackView';
 import { OidcView } from './components/OidcView';
-import type { ServerEvent, ModelInfo, UserInfo, ModelState, UserState, ActiveRequest, FeedEntry, Stats, GatewayStage } from './types';
+import type { ServerEvent, ModelInfo, UserInfo, ModelState, UserState, ActiveRequest, FeedEntry, Stats, GatewayStage, ScaleNotice } from './types';
+import { ScaleNotices } from './components/ScaleNotices';
 
 type ViewTab = 'traffic' | 'cost' | 'oidc';
 
@@ -29,6 +30,8 @@ export default function App() {
     return (params.get('tab') as ViewTab) || 'traffic';
   });
   const [models, setModels] = useState<ModelState[]>([]);
+  const modelsRef = useRef<ModelState[]>([]);
+  modelsRef.current = models;
   const [users, setUsers] = useState<UserState[]>([]);
   const [modelInfos, setModelInfos] = useState<ModelInfo[]>([]);
   const [userInfos, setUserInfos] = useState<UserInfo[]>([]);
@@ -45,6 +48,7 @@ export default function App() {
    *  read by the canvas loop. */
   const gatewayFlash = useRef<Record<GatewayStage, number>>({ auth: 0, access: 0, limit: 0, route: 0, meter: 0 });
   const [trafficRunning, setTrafficRunning] = useState(false);
+  const [scaleNotices, setScaleNotices] = useState<ScaleNotice[]>([]);
   const latencySamples = useRef<number[]>([]);
 
   /** The gateway stopped this request at `stage`: its dot finishes the trip to the
@@ -294,10 +298,37 @@ export default function App() {
       case 'scale_update':
         setModels(prev => prev.map(m =>
           m.name === event.model || m.name.endsWith(event.model)
-            ? { ...m, replicas: event.replicas, desiredReplicas: event.desiredReplicas }
+            ? {
+                ...m,
+                replicas: event.replicas,
+                desiredReplicas: event.desiredReplicas,
+                // Start the "starting for m:ss" clock the first time a replica is missing,
+                // and stop it once every desired replica is ready.
+                scalingSince: event.desiredReplicas > event.replicas ? (m.scalingSince ?? Date.now()) : undefined,
+              }
             : m
         ));
         break;
+
+      case 'scale_event': {
+        const model = modelsRef.current.find(m => m.name === event.model || m.name.endsWith(event.model));
+        const at = Date.now();
+        if (event.direction === 'up') {
+          setModels(prev => prev.map(m => (m.name === model?.name ? { ...m, scalingSince: at } : m)));
+        }
+        setScaleNotices(prev => [{
+          id: `${event.model}-${event.at}`,
+          model: model?.name ?? event.model,
+          modelDisplayName: model?.displayName ?? event.model,
+          direction: event.direction,
+          from: event.from,
+          to: event.to,
+          summary: event.summary,
+          checks: event.checks,
+          at,
+        }, ...prev].slice(0, 3));
+        break;
+      }
 
       case 'traffic_started':
         setTrafficRunning(true);
@@ -351,6 +382,10 @@ export default function App() {
           <div style={styles.main}>
             <div style={styles.topologyArea}>
               <Topology users={users} models={models} activeRequests={activeRequests} stats={stats} gatewayFlash={gatewayFlash.current} />
+              <ScaleNotices
+                notices={scaleNotices}
+                onDismiss={id => setScaleNotices(prev => prev.filter(n => n.id !== id))}
+              />
             </div>
             <div style={styles.sidebar}>
               <LiveFeed entries={feed} users={users} models={models} />

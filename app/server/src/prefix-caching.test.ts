@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { prefixCachingByPod } from './prometheus.js';
+import { prefixCachingByPod, kvCapacityByPod } from './prometheus.js';
 
 /**
  * `vllm:cache_config_info` exactly as the demo cluster reported it on 2026-11-04. Note
@@ -21,6 +21,20 @@ describe('prefixCachingByPod', () => {
 
   it('leaves a pod out when the label is missing or unexpected, so it reads as unknown', () => {
     const m = prefixCachingByPod([{ pod: 'p1', value: 1 }, { pod: 'p2', enable_prefix_caching: 'maybe', value: 1 }]);
+    assert.equal(m.size, 0);
+  });
+});
+
+describe('kvCapacityByPod', () => {
+  it('reads kv_cache_size_tokens per pod, as Qwen3 on an A10G reported it on 2026-11-05', () => {
+    const m = kvCapacityByPod([
+      { pod: 'qwen3-8b-fp8-kserve-6bb95dbd5c-lk786', block_size: '16', num_gpu_blocks: '4652', kv_cache_size_tokens: '74432', value: 1 },
+    ]);
+    assert.equal(m.get('qwen3-8b-fp8-kserve-6bb95dbd5c-lk786'), 74432);
+  });
+
+  it('leaves a pod out when the label is missing or not a positive number', () => {
+    const m = kvCapacityByPod([{ pod: 'a', value: 1 }, { pod: 'b', kv_cache_size_tokens: 'None', value: 1 }, { pod: 'c', kv_cache_size_tokens: '0', value: 1 }]);
     assert.equal(m.size, 0);
   });
 });

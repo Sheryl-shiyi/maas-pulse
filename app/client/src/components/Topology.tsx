@@ -1,4 +1,5 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
+import { HelpPopover, type HelpTarget } from './TopologyHelp';
 import type { ModelState, UserState, ActiveRequest, Stats, GatewayStage } from '../types';
 import { providerOf, providerLabel, drawProviderLogo } from './providerLogos';
 
@@ -97,6 +98,9 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
   /** Eased bar values per replica, keyed `<model>#<replicaIdx>`, so each one keeps its
    *  own animation across frames and across re-layouts. */
   const barsRef = useRef(new Map<string, { running: number; queued: number; cache: number }>());
+  /** Clickable areas drawn in the last frame, in canvas (CSS) pixels. */
+  const regionsRef = useRef<HelpTarget[]>([]);
+  const [help, setHelp] = useState<HelpTarget | null>(null);
 
   const getLayout = useCallback((w: number, h: number) => {
     // Users are grouped by subscription tier, because limits belong to the tier: every
@@ -185,6 +189,7 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
       const now = performance.now();
 
       ctx.clearRect(0, 0, w, h);
+      const regions: HelpTarget[] = [];
 
       // Compute model box positions (one box per replica)
       const modelRectW = 176;
@@ -260,7 +265,7 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
         if (pos) drawParticle(ctx, pos, color);
       }
 
-      drawGateway(ctx, layout.gateway, layout.stageH, stats, gatewayFlash, now);
+      drawGateway(ctx, layout.gateway, layout.stageH, stats, gatewayFlash, now, regions);
       for (const p of bounced) drawBounced(ctx, p);
 
       for (const band of layout.bands) drawBand(ctx, band, users, models);
@@ -280,7 +285,13 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
           ctx.lineWidth = 2;
           ctx.stroke();
           ctx.setLineDash([]);
-          drawText(ctx, 'Starting...', box.x, box.y, '#f59e0b', 13, 'bold');
+          // Name the replica that is coming, and how long it has been starting: a new
+          // vLLM pod takes 5-10 minutes (image pulls, model load), and an audience
+          // watching a box that just says "Starting..." cannot tell slow from stuck.
+          drawText(ctx, `${model.displayName} #${box.replicaIdx + 1}`, box.x, box.y - 8, '#f59e0b', 13, 'bold');
+          const since = model.scalingSince ? Math.max(0, Math.floor((Date.now() - model.scalingSince) / 1000)) : null;
+          const clock = since === null ? '' : ` · ${Math.floor(since / 60)}:${String(since % 60).padStart(2, '0')}`;
+          drawText(ctx, `starting vLLM on a new GPU${clock}`, box.x, box.y + 12, 'rgba(245, 158, 11, 0.85)', 10);
         } else {
           // A replica that is Ready but has not been scraped yet has no figures of its
           // own. It must not borrow the model-level summary: with only one replica
@@ -292,13 +303,13 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
           drawRoundedRect(ctx, box.x - modelRectW / 2, box.y - modelRectH / 2, modelRectW, modelRectH, 10, statusColor);
           const label = totalBoxes > 1 ? `${model.displayName} #${box.replicaIdx + 1}` : model.displayName;
           drawText(ctx, label, box.x, box.y - 8, '#fff', 13, 'bold');
+          const boxRect = { x: box.x - modelRectW / 2, y: box.y - modelRectH / 2, w: modelRectW, h: modelRectH };
+          regions.push({ topic: external ? 'external' : 'replica', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: boxRect });
           if (!external) {
-            const hit = stat?.cacheHitPercent;
-            const detail = stat
-              ? `R:${stat.runningRequests} Q:${stat.queuedRequests} KV:${stat.kvCachePercent}%`
-                + (hit === null || hit === undefined ? '' : ` hit:${hit}%`)
-              : 'awaiting metrics';
-            drawText(ctx, detail, box.x, box.y + 12, 'rgba(255,255,255,0.7)', 10);
+            // Say what is serving here. Running, queued and the hit rate have bars of
+            // their own below; the KV cache, one of the two scale-up triggers, does not.
+            const detail = stat ? `vLLM · KV cache ${stat.kvCachePercent}%` : 'vLLM · awaiting metrics';
+            drawText(ctx, detail, box.x, box.y + 12, 'rgba(255,255,255,0.8)', 10);
           } else {
             const provider = providerOf(model.name);
             if (provider) drawProviderLogo(ctx, provider, box.x - modelRectW / 2 + 22, box.y, 22);
@@ -326,6 +337,7 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
             drawCaption(ctx, barX, barY + 14, modelRectW, `In flight (of ${LOAD_BAR_SCALE})`,
               queued > 0 ? `${stat.runningRequests} + ${queued} queued` : `${stat.runningRequests} running`,
               queued > 0 ? QUEUE_COLOR : CAPTION_COLOR);
+            regions.push({ topic: 'inflight', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: { x: barX, y: barY - 2, w: modelRectW, h: 21 } });
             const cacheY = barY + 22;
             drawCacheBar(ctx, barX, cacheY, modelRectW, eased.cache, stat.cacheHitPercent === null);
             // "off" when this vLLM does not prefix-cache at all (Nemotron, a hybrid Mamba
@@ -334,22 +346,12 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
               stat.prefixCaching === false ? 'off'
                 : stat.cacheHitPercent === null ? 'idle' : `${stat.cacheHitPercent}%`,
               CAPTION_COLOR);
+            regions.push({ topic: 'cache', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: { x: barX, y: cacheY - 3, w: modelRectW, h: 20 } });
           }
         }
       }
 
-      // Draw "Scaling up..." between ready and provisioning boxes
-      for (let i = 0; i < models.length; i++) {
-        const model = models[i]!;
-        if (model.desiredReplicas <= model.replicas) continue;
-        const modelBoxes = boxes.filter(b => b.modelIdx === i);
-        const lastReady = [...modelBoxes].filter(b => !b.provisioning).pop();
-        const firstProv = modelBoxes.find(b => b.provisioning);
-        if (lastReady && firstProv) {
-          drawText(ctx, 'Scaling up...', lastReady.x, (lastReady.y + firstProv.y) / 2, '#f59e0b', 14, 'bold');
-        }
-      }
-
+      regionsRef.current = regions;
       animRef.current = requestAnimationFrame(draw);
     }
 
@@ -362,11 +364,38 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
     };
   }, [getLayout]);
 
+  const regionAt = (e: React.MouseEvent<HTMLCanvasElement>): HelpTarget | undefined => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - r.left, y = e.clientY - r.top;
+    return regionsRef.current.find(g => x >= g.rect.x && x <= g.rect.x + g.rect.w && y >= g.rect.y && y <= g.rect.y + g.rect.h);
+  };
+  const canvas = canvasRef.current;
+  const helpModel = help && help.modelIdx >= 0 ? models[help.modelIdx] : undefined;
+
   return (
-    <canvas
-      ref={canvasRef}
-      style={{ width: '100%', height: '100%', display: 'block' }}
-    />
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <canvas
+        ref={canvasRef}
+        style={{ width: '100%', height: '100%', display: 'block' }}
+        // Explanations only on click, so the view stays clean for people who know it.
+        onClick={e => {
+          const g = regionAt(e);
+          setHelp(prev => (g && !(prev && prev.topic === g.topic && prev.modelIdx === g.modelIdx && prev.replicaIdx === g.replicaIdx) ? g : null));
+        }}
+        onMouseMove={e => { e.currentTarget.style.cursor = regionAt(e) ? 'pointer' : 'default'; }}
+      />
+      {help && (
+        <HelpPopover
+          target={help}
+          model={helpModel}
+          stat={helpModel?.replicaStats[help.replicaIdx]}
+          stats={stats}
+          containerW={canvas?.clientWidth ?? 800}
+          containerH={canvas?.clientHeight ?? 600}
+          onClose={() => setHelp(null)}
+        />
+      )}
+    </div>
   );
 }
 
@@ -426,6 +455,7 @@ function drawGateway(
   card: Rect, stageH: number,
   stats: Stats, flash: Record<GatewayStage, number>,
   now: number,
+  regions: HelpTarget[],
 ): void {
   ctx.save();
   ctx.beginPath();
@@ -446,6 +476,10 @@ function drawGateway(
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.fillText('MaaS Gateway', card.x + 36, card.y + GATEWAY_HEADER_H / 2 + 1);
+  ctx.font = '9px -apple-system, sans-serif';
+  ctx.fillStyle = '#64748b';
+  ctx.textAlign = 'right';
+  ctx.fillText('click a step', card.x + card.w - 12, card.y + GATEWAY_HEADER_H / 2 + 1);
   ctx.beginPath();
   ctx.moveTo(card.x + 10, card.y + GATEWAY_HEADER_H);
   ctx.lineTo(card.x + card.w - 10, card.y + GATEWAY_HEADER_H);
@@ -468,6 +502,7 @@ function drawGateway(
     const since = now - flash[stage.key];
     const glow = flash[stage.key] > 0 && since >= 0 && since < duration ? 1 - since / duration : 0;
     const accent = stage.refuses ? BLOCKED_COLOR : '#4caf50';
+    regions.push({ topic: `gw-${stage.key}`, modelIdx: -1, replicaIdx: 0, rect: { x: card.x + 5, y: top + 2, w: card.w - 10, h: stageH - 4 } });
 
     if (glow > 0) {
       ctx.beginPath();
@@ -648,7 +683,10 @@ function drawStatus(
   return end;
 }
 
-/** A small caption under a bar: what it measures on the left, the reading on the right. */
+/**
+ * A small caption under a bar: what it measures on the left, the reading on the right,
+ * and an (i) after the label, because clicking the bar explains it.
+ */
 function drawCaption(
   ctx: CanvasRenderingContext2D,
   x: number, y: number, w: number,
@@ -659,6 +697,15 @@ function drawCaption(
   ctx.fillStyle = CAPTION_COLOR;
   ctx.textAlign = 'left';
   ctx.fillText(label, x, y);
+  const ix = x + ctx.measureText(label).width + 8;
+  ctx.beginPath();
+  ctx.arc(ix, y, 4.5, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.7)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.font = 'bold 7px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('i', ix, y + 0.5);
   ctx.font = 'bold 9px -apple-system, sans-serif';
   ctx.fillStyle = valueColor;
   ctx.textAlign = 'right';

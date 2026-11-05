@@ -143,6 +143,22 @@ export function prefixCachingByPod(rows: Record<string, string | number>[]): Map
   return out;
 }
 
+/**
+ * How many tokens of context each replica's KV cache can hold, from the same
+ * `vllm:cache_config_info` gauge (label `kv_cache_size_tokens`, set by vLLM after it has
+ * sized the cache: GPU memory left after the weights, in tokens). It turns "KV cache 1%"
+ * into something an audience can picture: 1% of room for 74,432 tokens. Keyed by pod;
+ * absent when this vLLM does not report it.
+ */
+export function kvCapacityByPod(rows: Record<string, string | number>[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const r of rows) {
+    const n = Number(r['kv_cache_size_tokens']);
+    if (Number.isFinite(n) && n > 0) out.set(String(r['pod'] ?? ''), n);
+  }
+  return out;
+}
+
 async function pollModelMetrics(models: ModelInfo[]) {
   const [running, waiting, kvCache, latency, cacheHits, cacheQueries, cacheConfig] = await Promise.all([
     query('vllm:num_requests_running'),
@@ -156,6 +172,7 @@ async function pollModelMetrics(models: ModelInfo[]) {
 
   const scaleMetrics: { model: string; queuedRequests: number; kvCachePercent: number }[] = [];
   const cachingByPod = prefixCachingByPod(cacheConfig);
+  const capacityByPod = kvCapacityByPod(cacheConfig);
 
   for (const model of models) {
     if (model.type === 'external') continue;
@@ -192,6 +209,7 @@ async function pollModelMetrics(models: ModelInfo[]) {
         kvCachePercent: Math.round(kv),
         cacheHitPercent: hitPercent,
         prefixCaching: cachingByPod.get(pod) ?? null,
+        kvCapacityTokens: capacityByPod.get(pod) ?? null,
         status: computeStatus(q, kv),
       };
     });

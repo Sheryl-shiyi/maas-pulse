@@ -1,6 +1,7 @@
 import https from 'https';
 import fs from 'fs';
 import { PRESSURE } from './prometheus.js';
+import { broadcast } from './ws.js';
 
 const SA_TOKEN_PATH = '/var/run/secrets/kubernetes.io/serviceaccount/token';
 const SA_CA_PATH = '/var/run/secrets/kubernetes.io/serviceaccount/ca.crt';
@@ -30,7 +31,35 @@ export function initAutoscaler(cfg: AutoscaleConfig) {
   console.log(`[autoscaler] namespace: ${cfg.namespace}, cooldown: ${cfg.cooldownSeconds}s`);
 }
 
-export async function checkAndScale(metrics: { model: string; queuedRequests: number; kvCachePercent: number }[]) {
+export interface ScaleMetric { model: string; queuedRequests: number; kvCachePercent: number }
+
+/** One condition the autoscaler checks, with the reading that was compared against it. */
+export interface ScaleCheck { label: string; value: number; limit: number; unit: string; tripped: boolean }
+
+/**
+ * Why the autoscaler acted, in the terms an audience can follow: each condition it
+ * checks, the reading, the limit, and whether it was the one that fired.
+ */
+export function scaleReason(direction: 'up' | 'down', m: ScaleMetric, cooldownSeconds: number): { summary: string; checks: ScaleCheck[] } {
+  if (direction === 'up') {
+    const checks: ScaleCheck[] = [
+      { label: 'Requests queued', value: m.queuedRequests, limit: PRESSURE.queuedOverloaded, unit: '', tripped: m.queuedRequests > PRESSURE.queuedOverloaded },
+      { label: 'KV cache in use', value: m.kvCachePercent, limit: PRESSURE.kvOverloadedPercent, unit: '%', tripped: m.kvCachePercent > PRESSURE.kvOverloadedPercent },
+    ];
+    const fired = checks.filter(c => c.tripped).map(c => `${c.label.toLowerCase()} ${c.value}${c.unit} > ${c.limit}${c.unit}`);
+    return { summary: fired.join(' and '), checks };
+  }
+  const minutes = Math.round(cooldownSeconds / 60);
+  return {
+    summary: `idle for ${minutes} min: nothing queued and KV cache under ${PRESSURE.kvIdlePercent}%`,
+    checks: [
+      { label: 'Requests queued', value: m.queuedRequests, limit: 0, unit: '', tripped: m.queuedRequests === 0 },
+      { label: 'KV cache in use', value: m.kvCachePercent, limit: PRESSURE.kvIdlePercent, unit: '%', tripped: m.kvCachePercent < PRESSURE.kvIdlePercent },
+    ],
+  };
+}
+
+export async function checkAndScale(metrics: ScaleMetric[]) {
   if (!config) return;
 
   for (const m of config.models) {
@@ -45,7 +74,7 @@ export async function checkAndScale(metrics: { model: string; queuedRequests: nu
 
     if (overloaded) {
       scaleDownTimers.delete(m.name);
-      await scaleUp(m);
+      await scaleUp(m, metric);
     } else if (idle) {
       const now = Date.now();
       const timer = scaleDownTimers.get(m.name);
@@ -53,7 +82,7 @@ export async function checkAndScale(metrics: { model: string; queuedRequests: nu
         scaleDownTimers.set(m.name, now);
       } else if (now - timer > config.cooldownSeconds * 1000) {
         scaleDownTimers.delete(m.name);
-        await scaleDown(m);
+        await scaleDown(m, metric);
       }
     } else {
       scaleDownTimers.delete(m.name);
@@ -124,22 +153,29 @@ async function patchReplicas(name: string, replicas: number): Promise<boolean> {
   }
 }
 
-async function scaleUp(model: AutoscaleModel) {
+async function scaleUp(model: AutoscaleModel, metric: ScaleMetric) {
   const current = await getCurrentReplicas(model.name);
   if (current === null) return;
   if (current >= model.maxReplicas) return;
   const target = Math.min(current + 1, model.maxReplicas);
-  console.log(`[autoscaler] scaling UP ${model.name}: ${current} → ${target}`);
-  await patchReplicas(model.name, target);
+  const reason = scaleReason('up', metric, config!.cooldownSeconds);
+  console.log(`[autoscaler] scaling UP ${model.name}: ${current} → ${target} (${reason.summary})`);
+  if (await patchReplicas(model.name, target)) announce(model.name, 'up', current, target, reason);
 }
 
-async function scaleDown(model: AutoscaleModel) {
+async function scaleDown(model: AutoscaleModel, metric: ScaleMetric) {
   const current = await getCurrentReplicas(model.name);
   if (current === null) return;
   if (current <= model.minReplicas) return;
   const target = Math.max(current - 1, model.minReplicas);
-  console.log(`[autoscaler] scaling DOWN ${model.name}: ${current} → ${target}`);
-  await patchReplicas(model.name, target);
+  const reason = scaleReason('down', metric, config!.cooldownSeconds);
+  console.log(`[autoscaler] scaling DOWN ${model.name}: ${current} → ${target} (${reason.summary})`);
+  if (await patchReplicas(model.name, target)) announce(model.name, 'down', current, target, reason);
+}
+
+/** Tell the UI why replicas changed, so the demo can show the cause, not just the effect. */
+function announce(model: string, direction: 'up' | 'down', from: number, to: number, reason: { summary: string; checks: ScaleCheck[] }) {
+  broadcast({ type: 'scale_event', model, direction, from, to, summary: reason.summary, checks: reason.checks, at: Date.now() });
 }
 
 function k8sGet(path: string, token: string): Promise<any> {

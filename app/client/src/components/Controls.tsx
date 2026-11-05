@@ -122,6 +122,13 @@ export function Controls({ models, users, trafficRunning, connected, send }: Con
         </div>
       </div>
 
+      {/* What the current choices will actually send, in words an audience can follow.
+          "Rate" alone misleads: in Concurrent mode every selected user fires per tick. */}
+      <div style={styles.hint}>
+        <span><b style={styles.hintKey}>{PATTERN_NAMES[pattern]}:</b> {patternHint(pattern, rate, selectedUsers.length || users.length)}</span>
+        <span><b style={styles.hintKey}>{PROMPT_NAMES[promptShape]}:</b> {PROMPT_HINTS[promptShape]}</span>
+      </div>
+
       <div style={styles.row}>
         <div style={styles.chips}>
           <span style={styles.chipLabel}>Users:</span>
@@ -163,6 +170,28 @@ export function Controls({ models, users, trafficRunning, connected, send }: Con
   );
 }
 
+const PATTERN_NAMES: Record<TrafficPattern, string> = { concurrent: 'Concurrent', sequential: 'Sequential', random_burst: 'Random burst' };
+const PROMPT_NAMES: Record<PromptShape, string> = { short: 'Short', 'shared-prefix': 'Shared prefix', 'unique-prefix': 'Unique prefix' };
+
+/** Matches server/src/traffic.ts: what each pattern sends, at the chosen rate. */
+function patternHint(pattern: TrafficPattern, rate: number, users: number): string {
+  const r = Number(rate.toFixed(1));
+  switch (pattern) {
+    case 'concurrent':
+      return `all ${users} selected users send at once, ${r} times a second (about ${Math.round(users * r)} requests/s; never more than 50 waiting for an answer).`;
+    case 'sequential':
+      return `users take turns, one request at a time, ${r} per second.`;
+    case 'random_burst':
+      return 'bursts of 2–6 requests from random users with random pauses: spiky traffic. Higher rate, shorter pauses.';
+  }
+}
+
+const PROMPT_HINTS: Record<PromptShape, string> = {
+  short: 'one question from a pool of 50. Cheap; a repeated question is mostly served from the prefix cache.',
+  'shared-prefix': 'the same ~1,500-token document before every question. Shows cache hits, and llm-d keeping requests on the replica that has it cached.',
+  'unique-prefix': 'a different ~1,500-token document every time. Nothing to reuse, so it fills GPU memory and queues: use it to trigger autoscaling. It uses up a tier\u2019s token budget fast.',
+};
+
 const styles: Record<string, React.CSSProperties> = {
   container: { padding: '12px 20px', background: '#131824', borderBottom: '1px solid #1e293b' },
   row: { display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap', marginBottom: 8 },
@@ -173,6 +202,8 @@ const styles: Record<string, React.CSSProperties> = {
   startBtn: { background: '#4caf50', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer' },
   stopBtn: { background: '#f44336', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer' },
   status: { fontSize: 12, fontWeight: 600, marginLeft: 'auto' },
+  hint: { display: 'flex', gap: 24, flexWrap: 'wrap', fontSize: 11, color: '#94a3b8', margin: '-2px 0 8px' },
+  hintKey: { color: '#cbd5e1', fontWeight: 600 },
   chips: { display: 'flex', alignItems: 'center', gap: 6 },
   chipLabel: { fontSize: 12, color: '#64748b' },
   chip: { color: '#e0e0e0', border: 'none', borderRadius: 12, padding: '3px 10px', fontSize: 12, cursor: 'pointer' },

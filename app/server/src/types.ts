@@ -32,6 +32,8 @@ export interface ReplicaStatus {
   /** Whether this replica's vLLM has prefix caching enabled at all; null when unknown.
    *  False means the hit rate is not "idle" but simply not applicable. */
   prefixCaching: boolean | null;
+  /** Tokens of context this replica's KV cache can hold; null when not reported. */
+  kvCapacityTokens: number | null;
   status: ModelStatus;
 }
 export type TrafficPattern = 'concurrent' | 'sequential' | 'random_burst';
@@ -48,6 +50,9 @@ export type ServerEvent =
   | { type: 'rate_limit_reset'; user: string; model: string }
   | { type: 'rate_limit_update'; user: string; rateLimits: Record<string, string> }
   | { type: 'scale_update'; model: string; replicas: number; desiredReplicas: number }
+  /** The autoscaler changed replicas, and why: each condition it checked and its reading. */
+  | { type: 'scale_event'; model: string; direction: 'up' | 'down'; from: number; to: number; summary: string;
+      checks: { label: string; value: number; limit: number; unit: string; tripped: boolean }[]; at: number }
   | { type: 'traffic_started'; pattern: TrafficPattern }
   | { type: 'traffic_stopped' };
 
