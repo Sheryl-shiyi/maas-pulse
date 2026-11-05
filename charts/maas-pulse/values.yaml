@@ -30,11 +30,13 @@ subscriptions:
       qwen3-8b-fp8:
         - limit: 1000
           window: 1m
+      # The two external models are billed per token to the user's own keys (OpenAI;
+      # Gemini since 2026-11-05), so their limits are far below the self-hosted models'
+      # in every tier, and the same for both: the tier limit is what caps the bill if a
+      # run is left going.
       "gemini-3.1-flash-lite":
         - limit: 1000
           window: 1m
-      # GPT is paid per token, so its quotas are far below the self-hosted models' in
-      # every tier: the tier limit is what caps the bill if a run is left going.
       "gpt-5.4-nano":
         - limit: 1000
           window: 1m
@@ -51,7 +53,7 @@ subscriptions:
         - limit: 10000
           window: 1m
       "gemini-3.1-flash-lite":
-        - limit: 10000
+        - limit: 5000
           window: 1m
       "gpt-5.4-nano":
         - limit: 5000
@@ -72,7 +74,7 @@ subscriptions:
         - limit: 800000
           window: 1m
       "gemini-3.1-flash-lite":
-        - limit: 800000
+        - limit: 20000
           window: 1m
       "gpt-5.4-nano":
         - limit: 20000
