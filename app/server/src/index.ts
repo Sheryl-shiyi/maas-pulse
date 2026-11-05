@@ -10,6 +10,7 @@ import { initChargeback, getChargebackData, updateModelRate } from './chargeback
 import { startSubscriptionWatcher, getWatchedRateLimits } from './subscription-watcher.js';
 import { startDeploymentWatcher, getWatchedReplicas } from './deployment-watcher.js';
 import { initAutoscaler } from './autoscaler.js';
+import { parseAutoscaleModels } from './autoscale-config.js';
 import { initOidc, createOidcRouter } from './oidc.js';
 import { identityGroup } from './sa-token.js';
 import type { AppConfig, ClientEvent } from './types.js';
@@ -226,16 +227,16 @@ if (internalModels.length > 0) {
   startDeploymentWatcher(internalModels, modelsNs);
 }
 
-const autoscaleModelNames = (process.env['AUTOSCALE_MODELS'] || '').split(',').filter(Boolean);
-const autoscaleMaxReplicas = parseInt(process.env['AUTOSCALE_MAX_REPLICAS'] || '2');
+// Each model with its own replica range (`name:min:max`); AUTOSCALE_MAX_REPLICAS only
+// fills in for a bare name, as older charts rendered.
+const autoscaleModels = parseAutoscaleModels(
+  process.env['AUTOSCALE_MODELS'],
+  parseInt(process.env['AUTOSCALE_MAX_REPLICAS'] || '2'),
+);
 const autoscaleCooldown = parseInt(process.env['AUTOSCALE_COOLDOWN'] || '60');
-if (autoscaleModelNames.length > 0) {
+if (autoscaleModels.length > 0) {
   initAutoscaler({
-    models: autoscaleModelNames.map(name => ({
-      name: name.trim(),
-      minReplicas: 1,
-      maxReplicas: autoscaleMaxReplicas,
-    })),
+    models: autoscaleModels,
     namespace: modelsNs,
     cooldownSeconds: autoscaleCooldown,
   });

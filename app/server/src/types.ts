@@ -43,7 +43,7 @@ export type ServerEvent =
 
   | { type: 'request_start'; requestId: string; user: string; model: string; question: string }
   | { type: 'request_complete'; requestId: string; user: string; model: string; latencyMs: number; tokensUsed: number; answer: string }
-  /** `source`: the MaaS gateway's own limit, or the external provider's (Google's quota). */
+  /** `source`: the MaaS gateway's own limit, or the external provider's own rate limit. */
   | { type: 'rate_limited'; requestId: string; user: string; model: string; source: 'gateway' | 'provider'; message?: string }
   | { type: 'request_error'; requestId: string; user: string; model: string; error: string; status?: number }
   | { type: 'model_status'; model: string; runningRequests: number; queuedRequests: number; latencyP95Ms: number; kvCachePercent: number; status: ModelStatus; replicas: ReplicaStatus[] }

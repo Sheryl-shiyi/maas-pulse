@@ -109,7 +109,7 @@ export interface InferenceResult {
   rateLimited: boolean;
   /** For a 429: the MaaS gateway's own limit, or the provider behind it. */
   limitedBy?: LimitedBy;
-  /** The provider's own words for its 429, e.g. Google's quota message. */
+  /** The provider's own words for its 429. */
   providerMessage?: string;
   retryAfterMs?: number;
   error?: string;

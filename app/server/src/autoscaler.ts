@@ -27,7 +27,7 @@ export function initAutoscaler(cfg: AutoscaleConfig) {
     return;
   }
   config = cfg;
-  console.log(`[autoscaler] initialized for models: ${cfg.models.map(m => m.name).join(', ')}`);
+  console.log(`[autoscaler] initialized for models: ${cfg.models.map(m => `${m.name} (${m.minReplicas}–${m.maxReplicas} replicas)`).join(', ')}`);
   console.log(`[autoscaler] namespace: ${cfg.namespace}, cooldown: ${cfg.cooldownSeconds}s`);
 }
 

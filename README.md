@@ -42,7 +42,7 @@ Each replica gets its own box, with two bars beneath it. The upper bar is the wo
 
 The gateway is drawn as the policy pipeline every request passes through: **Authenticate** (API key, ServiceAccount token or OIDC), **Subscription** (which tier, which models), **Token limits** (tokens per minute per user), **Route by model** (llm-d for internal models, the provider's key injected for external ones) and **Meter usage** (what feeds Cost & Chargeback). A stage lights up as it acts, and the ones that can refuse a request count their refusals. A request the gateway turns away bounces back from it as a crossed red dot.
 
-Users are grouped by subscription tier. Each tier shows its per-user limits once, because every member shares them, and each user row names the models that user is currently paused on: in red when MaaS refused (the tier's token limit), in amber when the provider behind an external model refused (for example Google's free-tier quota), which is a 429 from upstream and not a MaaS limit.
+Users are grouped by subscription tier. Each tier shows its per-user limits once, because every member shares them, and each user row names the models that user is currently paused on: in red when MaaS refused (the tier's token limit), in amber when the provider behind an external model refused it with its own rate limit, which is a 429 from upstream and not a MaaS limit.
 
 Each internal box is labelled as the vLLM server it is (`vLLM · KV cache 23%`). Clicking a bar's caption, a model box or one of the gateway's steps opens a short plain-language explanation with the live reading: what "in flight" and continuous batching mean, what a cache hit saves and why a new replica starts low, what one replica is (one vLLM server on one GPU, with room in its KV cache for so many tokens), and what each gateway step checks. A line under the traffic controls says what the chosen pattern and prompt shape will send. When the autoscaler adds or removes a replica, a notice under the topology says why: each condition it checks, the reading, the limit, and which one fired. It stays until dismissed, while the new replica's box counts how long it has been starting.
 
@@ -315,7 +315,8 @@ There is **no CPU or simulator fallback** today, so the project cannot be tried 
 GPUs. That is a known gap.
 
 Allow **two** A10G nodes rather than one if you want to demonstrate autoscaling: Qwen3
-scales to a second replica and needs somewhere to put it.
+scales to a second replica and needs somewhere to put it. That spare A10G is the only
+extra GPU the demo ever uses (see "Only Qwen3 scales" below).
 
 #### FP8 on A10G works, despite advice to the contrary
 
@@ -543,6 +544,14 @@ screen.
 
 Max tier only, because a 1500-token prompt exceeds the Free tier's entire 1000/min
 allowance in a single request; the others would simply sit at 429 and show nothing.
+
+**Only Qwen3 scales, and only to 2.** To keep the demo to one extra GPU, the autoscaler
+manages Qwen3 alone, between 1 and 2 replicas, which is exactly the one spare A10G.
+Nemotron stays at one replica: there is no spare L40S, so a second one would wait
+forever. Each model's range is set separately in `autoscaling.models` in
+`charts/maas-pulse/values.yaml` (`minReplicas`, `maxReplicas`); give a model a higher
+maximum only if that many GPUs of its type are actually waiting. After 15 quiet minutes
+the extra replica is removed again, and the next burst can bring it back.
 
 **Rate matters more than it looks.** The constraint is token throughput, and one A10G
 running Qwen3 saturates a little below 1/s at this prompt size. At 2/s the queue reaches

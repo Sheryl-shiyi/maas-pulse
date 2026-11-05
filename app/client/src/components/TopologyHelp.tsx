@@ -122,7 +122,7 @@ function modelContent(target: HelpTarget, model: ModelState, stat: ReplicaStatus
         body: [
           <>No GPU or vLLM of ours: the gateway forwards to the provider and adds the provider's API key itself, so users never hold it.</>,
           <>Same authentication, subscription limits and usage metering as the models on our GPUs.</>,
-          <>A <b style={{ color: '#f59e0b' }}>429 in amber</b> is the provider's own quota (for example Google's free tier), not a MaaS limit.</>,
+          <>A <b style={{ color: '#f59e0b' }}>429 in amber</b> is the provider's own rate limit, not a MaaS limit.</>,
         ],
       };
   }

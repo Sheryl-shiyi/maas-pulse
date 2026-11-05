@@ -36,7 +36,7 @@ export type ServerEvent =
   | { type: 'config'; models: ModelInfo[]; users: UserInfo[]; trafficRunning: boolean }
   | { type: 'request_start'; requestId: string; user: string; model: string; question: string }
   | { type: 'request_complete'; requestId: string; user: string; model: string; latencyMs: number; tokensUsed: number; answer: string }
-  /** `source`: the MaaS gateway's own limit, or the external provider's (Google's quota). */
+  /** `source`: the MaaS gateway's own limit, or the external provider's own rate limit. */
   | { type: 'rate_limited'; requestId: string; user: string; model: string; source?: LimitSource; message?: string }
   | { type: 'request_error'; requestId: string; user: string; model: string; error: string; status?: number }
   | { type: 'model_status'; model: string; runningRequests: number; queuedRequests: number; latencyP95Ms: number; kvCachePercent: number; status: ModelStatus; replicas: ReplicaStatus[] }
@@ -96,7 +96,7 @@ export interface FeedEntry {
   tokensUsed: number;
   timestamp: number;
   rateLimited?: boolean;
-  /** A 429 from the external provider (e.g. Google's quota), not from MaaS. */
+  /** A 429 from the external provider (its own rate limit), not from MaaS. */
   providerLimited?: boolean;
   providerMessage?: string;
   error?: string;

@@ -175,8 +175,8 @@ export default function App() {
         const limitedQuestion = activeRequestsRef.current.find(r => r.requestId === event.requestId)?.question || '';
         const source = event.source ?? 'gateway';
         const sameUserModel = (r: ActiveRequest) => r.user === event.user && r.model === event.model;
-        // Only the gateway's own 429 is a MaaS rate limit. A provider's (Google's free
-        // quota) reached the model and failed there, so it counts as an upstream error.
+        // Only the gateway's own 429 is a MaaS rate limit. A provider's own rate limit
+        // was hit after routing, at the provider, so it counts as an upstream error.
         setStats(s => source === 'gateway'
           ? { ...s, rateLimitedRequests: s.rateLimitedRequests + 1 }
           : { ...s, errorRequests: s.errorRequests + 1, routedRequests: s.routedRequests + 1 });

@@ -47,7 +47,7 @@ export function LiveFeed({ entries, users = [], models = [] }: LiveFeedProps) {
             )}
             {entry.providerLimited && (
               <div style={styles.providerMsg} title={entry.providerMessage}>
-                {providerName(entry.model)} quota, not a MaaS limit
+                {providerName(entry.model)} rate limit, not a MaaS limit
                 {entry.providerMessage ? `: ${truncate(entry.providerMessage, 60)}` : ''}
               </div>
             )}

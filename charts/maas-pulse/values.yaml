@@ -459,6 +459,10 @@ oidc:
 autoscaling:
   enabled: false
   cooldownSeconds: 900
+  # Each model's range is bound by the GPUs actually waiting for it. The demo keeps one
+  # spare A10G (the g5 MachineSet runs 2 nodes for 1 Qwen3 replica), so Qwen3 may go to
+  # 2. Nemotron is not listed: there is no spare L40S, and a second replica would sit
+  # Pending. Only Qwen3 scales, which keeps the demo to one extra GPU.
   models:
     - name: qwen3-8b-fp8
       minReplicas: 1

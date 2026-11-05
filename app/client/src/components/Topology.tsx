@@ -18,7 +18,7 @@ const CAPTION_COLOR = 'rgba(148, 163, 184, 0.85)';
 const GATEWAY_COLOR = '#ff9800';
 /** MaaS refused the request: its own token limit, authentication or access. */
 const BLOCKED_COLOR = '#ef4444';
-/** The provider behind an external model refused it (Google's quota), not MaaS. */
+/** The provider behind an external model refused it (its own rate limit), not MaaS. */
 const PROVIDER_LIMIT_COLOR = '#f59e0b';
 
 /**
@@ -546,7 +546,7 @@ function splitLimit(text: string): { limit: string; window: string | null } {
 /**
  * A subscription tier: its per-user limits once, then its users, each with the models it
  * is currently paused on. Red is MaaS refusing (the tier's token limit), amber is the
- * provider behind an external model refusing (Google's quota), which MaaS cannot help.
+ * provider behind an external model refusing (its own rate limit), which MaaS cannot help.
  */
 function drawBand(ctx: CanvasRenderingContext2D, band: Band, users: UserState[], models: ModelState[]): void {
   const { pad: BAND_PAD, headerH: BAND_HEADER_H, limitRowH: LIMIT_ROW_H } = band;
@@ -631,7 +631,7 @@ function drawBand(ctx: CanvasRenderingContext2D, band: Band, users: UserState[],
       const p = providerOf(m);
       const who = p === 'gemini' ? 'Google' : p === 'openai' ? 'OpenAI' : 'provider';
       // The provider names the model well enough (Google = Gemini) and keeps it short.
-      x = drawStatus(ctx, x, y, right, `${who} quota`, PROVIDER_LIMIT_COLOR, 'provider');
+      x = drawStatus(ctx, x, y, right, `${who} rate limit`, PROVIDER_LIMIT_COLOR, 'provider');
     }
   });
 }

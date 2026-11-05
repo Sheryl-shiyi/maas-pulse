@@ -75,14 +75,13 @@ spec:
                   key: api-keys
             {{- end }}
             {{- if .Values.autoscaling.enabled }}
-            {{- $scaleNames := list }}
+            {{- /* name:min:max per model: each is bound by its own spare GPUs */}}
+            {{- $scaleModels := list }}
             {{- range .Values.autoscaling.models }}
-            {{- $scaleNames = append $scaleNames .name }}
+            {{- $scaleModels = append $scaleModels (printf "%s:%v:%v" .name (.minReplicas | default 1) (.maxReplicas | default 2)) }}
             {{- end }}
             - name: AUTOSCALE_MODELS
-              value: {{ $scaleNames | join "," | quote }}
-            - name: AUTOSCALE_MAX_REPLICAS
-              value: {{ (index .Values.autoscaling.models 0).maxReplicas | default 2 | quote }}
+              value: {{ $scaleModels | join "," | quote }}
             - name: AUTOSCALE_COOLDOWN
               value: {{ .Values.autoscaling.cooldownSeconds | default 60 | quote }}
             {{- end }}
