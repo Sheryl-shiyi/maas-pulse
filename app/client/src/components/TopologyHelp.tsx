@@ -89,7 +89,7 @@ function modelContent(target: HelpTarget, model: ModelState, stat: ReplicaStatus
           <><b style={{ color: '#4caf50' }}>Green</b> healthy · <b style={{ color: '#ff9800' }}>orange</b> requests waiting or KV cache over 50% · <b style={{ color: '#f44336' }}>red</b> more than 5 waiting or KV cache over 80%: the autoscaler adds a replica.</>,
         ],
         now: stat
-          ? <>Now: {stat.runningRequests} generating · {stat.queuedRequests} waiting · {kvReading(stat)}</>
+          ? <>Now: {stat.runningRequests} generating · {stat.queuedRequests} waiting · {kvReading(stat)} · {stat.requestsPerSecond} requests/s served</>
           : <>Waiting for this replica's first metrics.</>,
       };
     case 'inflight':

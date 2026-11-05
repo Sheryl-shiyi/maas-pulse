@@ -116,6 +116,8 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
   const barsRef = useRef(new Map<string, { running: number; queued: number; cache: number }>());
   /** Clickable areas drawn in the last frame, in canvas (CSS) pixels. */
   const regionsRef = useRef<HelpTarget[]>([]);
+  /** Which replica each in-flight request's dot is heading for, chosen once. */
+  const routedRef = useRef(new Map<string, number>());
   const [help, setHelp] = useState<HelpTarget | null>(null);
 
   const getLayout = useCallback((w: number, h: number) => {
@@ -298,7 +300,21 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
 
         const readyBoxes = boxes.filter(b => b.modelIdx === modelIdx && !b.provisioning);
         if (readyBoxes.length === 0) continue;
-        const mPos = readyBoxes[simpleHash(req.requestId) % readyBoxes.length]!;
+        // Send the dot where llm-d actually sends this model's traffic. The response does
+        // not say which replica answered, so pick in proportion to the requests each
+        // replica finished in the last minute. Dots used to be shared out evenly, which
+        // showed a cold new replica taking half the load while it served almost none.
+        let replica = routedRef.current.get(req.requestId);
+        if (replica === undefined || !readyBoxes.some(b => b.replicaIdx === replica)) {
+          const stats = models[modelIdx]!.replicaStats;
+          replica = pickReplica(
+            readyBoxes.map(b => b.replicaIdx),
+            readyBoxes.map(b => stats[b.replicaIdx]?.requestsPerSecond ?? 0),
+            simpleHash(req.requestId),
+          );
+          routedRef.current.set(req.requestId, replica);
+        }
+        const mPos = readyBoxes.find(b => b.replicaIdx === replica)!;
 
         let pos: { x: number; y: number } | null = null;
         if (req.phase === 'to_gateway') {
@@ -312,6 +328,11 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
             : getCurvePoint(layout.entry.x, layout.entry.y, uX, uY, (t - 0.5) * 2);
         }
         if (pos) drawParticle(ctx, pos, color);
+      }
+
+      if (routedRef.current.size > 300) {
+        const live = new Set(activeRequests.map(r => r.requestId));
+        for (const id of routedRef.current.keys()) if (!live.has(id)) routedRef.current.delete(id);
       }
 
       drawGateway(ctx, layout.gateway, layout.stageH, stats, gatewayFlash, now, regions);
@@ -928,6 +949,22 @@ function drawCacheBar(
   ctx.fillStyle = CACHE_COLOR;
   ctx.fillRect(x, y, (Math.min(Math.max(percent, 0), 100) / 100) * w, h);
   ctx.restore();
+}
+
+/**
+ * One of `ids`, chosen with probability proportional to `weights`, using `hash` as the
+ * random draw so the same request always gets the same answer. Even shares when no
+ * replica has served anything recently.
+ */
+function pickReplica(ids: number[], weights: number[], hash: number): number {
+  const total = weights.reduce((a, w) => a + Math.max(w, 0), 0);
+  if (total <= 0) return ids[hash % ids.length]!;
+  let u = ((hash % 10007) / 10007) * total;
+  for (let i = 0; i < ids.length; i++) {
+    u -= Math.max(weights[i]!, 0);
+    if (u < 0) return ids[i]!;
+  }
+  return ids[ids.length - 1]!;
 }
 
 function simpleHash(str: string): number {

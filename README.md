@@ -545,6 +545,14 @@ screen.
 Max tier only, because a 1500-token prompt exceeds the Free tier's entire 1000/min
 allowance in a single request; the others would simply sit at 429 and show nothing.
 
+**Keep the unique-prefix traffic running once the second replica is Ready** if you want
+to show it taking load. Measured on 2026-11-05: in 60 seconds of unique-prefix traffic on
+Max, the two replicas finished 137 and 131 requests, and neither queued more than one.
+Switch to short prompts and the new replica goes almost idle (24 requests against 3,198
+in one 10-minute window): every short question is already cached on the first replica,
+which is not queueing, so llm-d keeps sending traffic there. That is cache-aware
+routing working, and worth saying out loud.
+
 **Only Qwen3 scales, and only to 2.** To keep the demo to one extra GPU, the autoscaler
 manages Qwen3 alone, between 1 and 2 replicas, which is exactly the one spare A10G.
 Nemotron stays at one replica: there is no spare L40S, so a second one would wait

@@ -160,7 +160,7 @@ export function kvCapacityByPod(rows: Record<string, string | number>[]): Map<st
 }
 
 async function pollModelMetrics(models: ModelInfo[]) {
-  const [running, waiting, kvCache, latency, cacheHits, cacheQueries, cacheConfig] = await Promise.all([
+  const [running, waiting, kvCache, latency, cacheHits, cacheQueries, cacheConfig, served] = await Promise.all([
     query('vllm:num_requests_running'),
     query('vllm:num_requests_waiting'),
     query('vllm:kv_cache_usage_perc'),
@@ -168,6 +168,9 @@ async function pollModelMetrics(models: ModelInfo[]) {
     query(`rate(vllm:prefix_cache_hits_total[${CACHE_RATE_WINDOW}])`),
     query(`rate(vllm:prefix_cache_queries_total[${CACHE_RATE_WINDOW}])`),
     query('vllm:cache_config_info'),
+    // Requests each replica actually finished in the last minute. The only record of
+    // where llm-d sent traffic: responses do not say which replica answered.
+    query('sum by (pod, model_name) (rate(vllm:request_success_total[1m]))'),
   ]);
 
   const scaleMetrics: { model: string; queuedRequests: number; kvCachePercent: number }[] = [];
@@ -188,6 +191,7 @@ async function pollModelMetrics(models: ModelInfo[]) {
     const kvByPod = byPod(kvCache);
     const hitsByPod = byPod(cacheHits);
     const queriesByPod = byPod(cacheQueries);
+    const servedByPod = byPod(served);
 
     const pods = orderedPods(baseName, [...new Set([
       ...runningByPod.keys(), ...waitingByPod.keys(), ...kvByPod.keys(),
@@ -210,6 +214,7 @@ async function pollModelMetrics(models: ModelInfo[]) {
         cacheHitPercent: hitPercent,
         prefixCaching: cachingByPod.get(pod) ?? null,
         kvCapacityTokens: capacityByPod.get(pod) ?? null,
+        requestsPerSecond: Math.round((servedByPod.get(pod) ?? 0) * 100) / 100,
         status: computeStatus(q, kv),
       };
     });
