@@ -42,15 +42,18 @@ export const SCENES: Scene[] = [
   {
     id: 'batching',
     title: 'vLLM: one GPU, many requests',
-    users: tierIn('pro', 'max'),
+    // Max only: at this rate Pro users spend their 10k tokens/min on Qwen3 within half a
+    // minute, which halved the batch and put red "paused" tags on screen mid-scene, in a
+    // scene about batching. Limits are scene 1's story.
+    users: tierIn('max'),
     models: isQwen,
     pattern: 'concurrent',
     promptShape: 'short',
-    rate: 3,
+    rate: 5,
     watch: [
-      'One GPU, one vLLM server, twenty or more requests in flight at once: continuous batching.',
-      'Nothing queues, and the KV cache stays low: short prompts barely use GPU memory.',
-      'Click In flight or the Qwen3 card for what vLLM is doing.',
+      'One GPU, one vLLM server, about thirty requests in flight at once: continuous batching.',
+      'The speed line: well over 1,000 tokens/s from the one GPU, and the first token still comes within a fraction of a second.',
+      'Nothing queues, and the KV cache stays low: short prompts barely use GPU memory. Click In flight or Speed for more.',
     ],
   },
   {

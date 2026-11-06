@@ -516,8 +516,9 @@ running traffic, sets users, models, prompt shape and rate, starts again, and pu
 
 1. **Tiers and token limits**: every user on the self-hosted models; within half a minute
    the Free tier is throttled while Pro and Max carry on.
-2. **vLLM: one GPU, many requests**: Pro and Max on Qwen3, short prompts; dozens in flight
-   on one GPU and nothing queued.
+2. **vLLM: one GPU, many requests**: Max on Qwen3 at 5/s, short prompts; about thirty in
+   flight on one GPU, over 1,000 tokens/s, nothing queued. (Max only: Pro users would spend
+   their per-minute Qwen3 allowance within half a minute and halve the batch.)
 3. **Autoscaling under real load**: Max on Qwen3 with ~2000-token unique prompts; a queue builds,
    the autoscaler adds a replica and says why. Keep it running until #2 takes its share.
 4. **llm-d: cache-aware routing**: Max on Qwen3 with a shared document; traffic sticks to the
