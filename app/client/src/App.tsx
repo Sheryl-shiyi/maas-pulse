@@ -144,13 +144,25 @@ export default function App() {
         setUsers(prev => prev.map(u =>
           u.name === event.user ? { ...u, activeRequests: Math.max(0, u.activeRequests - 1) } : u
         ));
+        // Which replica really answered: the gateway names the pod (x-maas-upstream) and
+        // each replica's metrics carry the same address. The dot returns from there.
+        const servingModel = modelsRef.current.find(m => m.name === event.model);
+        const servedIdx = servingModel && event.upstream
+          ? servingModel.replicaStats.findIndex(r => r.instance === event.upstream) : -1;
+        const cachedFraction = event.promptTokens ? (event.cachedTokens ?? 0) / event.promptTokens : undefined;
         setActiveRequests(prev => {
           const next = prev.map(r =>
-            r.requestId === event.requestId ? { ...r, phase: 'returning' as const, startTime: performance.now() } : r
+            r.requestId === event.requestId ? {
+              ...r, phase: 'returning' as const, startTime: performance.now(),
+              servedReplica: servedIdx >= 0 ? servedIdx : undefined, cachedFraction,
+            } : r
           );
           activeRequestsRef.current = next;
           return next;
         });
+        const servedBy = servingModel?.type === 'internal'
+          ? servingModel.displayName + (servedIdx >= 0 && (servingModel.replicas > 1 || servingModel.desiredReplicas > 1) ? ` #${servedIdx + 1}` : '')
+          : undefined;
         setTimeout(() => {
           setActiveRequests(prev => {
             const next = prev.filter(r => r.requestId !== event.requestId);
@@ -167,6 +179,9 @@ export default function App() {
           latencyMs: event.latencyMs,
           tokensUsed: event.tokensUsed,
           timestamp: Date.now(),
+          servedBy,
+          promptTokens: event.promptTokens,
+          cachedTokens: event.cachedTokens,
         }, ...prev].slice(0, MAX_FEED));
         break;
 

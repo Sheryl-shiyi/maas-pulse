@@ -46,6 +46,12 @@ export function LiveFeed({ entries, users = [], models = [] }: LiveFeedProps) {
             {entry.answer && (
               <div style={styles.answer}>A: {truncate(entry.answer, 80)}</div>
             )}
+            {entry.servedBy && (
+              <div style={styles.served}>
+                served by {entry.servedBy}
+                {entry.promptTokens ? ` · ${entry.cachedTokens ?? 0} of ${entry.promptTokens} prompt tokens from cache` : ''}
+              </div>
+            )}
             {entry.rateLimited && (
               <div style={styles.rateLimitMsg}>Rate limited by MaaS (token limit)</div>
             )}
@@ -96,4 +102,5 @@ const styles: Record<string, React.CSSProperties> = {
   answer: { color: '#64748b', lineHeight: 1.4, fontStyle: 'italic' },
   rateLimitMsg: { color: '#f44336', fontWeight: 600, fontSize: 11 },
   providerMsg: { color: '#f59e0b', fontWeight: 600, fontSize: 11 },
+  served: { color: '#38bdf8', fontSize: 11, marginTop: 2 },
 };

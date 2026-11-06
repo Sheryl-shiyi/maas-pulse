@@ -159,6 +159,21 @@ export function kvCapacityByPod(rows: Record<string, string | number>[]): Map<st
   return out;
 }
 
+/**
+ * Each pod's address as vLLM's metrics label it (`instance`, ip:port). The gateway names
+ * the backend that served a response in the same form (`x-maas-upstream`), so this is how
+ * a response is matched to the replica that produced it, without asking Kubernetes.
+ */
+export function instanceByPod(rows: Record<string, string | number>[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const r of rows) {
+    const pod = String(r['pod'] ?? '');
+    const instance = String(r['instance'] ?? '');
+    if (pod && instance) out.set(pod, instance);
+  }
+  return out;
+}
+
 async function pollModelMetrics(models: ModelInfo[]) {
   const [running, waiting, kvCache, latency, cacheHits, cacheQueries, cacheConfig, served] = await Promise.all([
     query('vllm:num_requests_running'),
@@ -187,6 +202,7 @@ async function pollModelMetrics(models: ModelInfo[]) {
       new Map(mine(rows).map(r => [String(r['pod'] ?? ''), Number(r['value']) || 0]));
 
     const runningByPod = byPod(running);
+    const instances = instanceByPod(mine(running));
     const waitingByPod = byPod(waiting);
     const kvByPod = byPod(kvCache);
     const hitsByPod = byPod(cacheHits);
@@ -215,6 +231,7 @@ async function pollModelMetrics(models: ModelInfo[]) {
         prefixCaching: cachingByPod.get(pod) ?? null,
         kvCapacityTokens: capacityByPod.get(pod) ?? null,
         requestsPerSecond: Math.round((servedByPod.get(pod) ?? 0) * 100) / 100,
+        instance: instances.get(pod) ?? null,
         status: computeStatus(q, kv),
       };
     });

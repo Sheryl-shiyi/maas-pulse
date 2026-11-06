@@ -107,7 +107,7 @@ function modelContent(target: HelpTarget, model: ModelState, stat: ReplicaStatus
         title: "Cache hit rate: work vLLM didn't redo",
         body: [
           <>vLLM keeps each prompt it has read (its <b>KV cache</b>) in GPU memory. A new prompt that starts the same way, such as a shared system prompt or document, reuses it instead of recomputing: a <b>hit</b>. Faster first token, less GPU work.</>,
-          <>The bar is the share of prompt tokens served from cache in the last 2 minutes. Each replica has its own cache.</>,
+          <>The bar is the share of prompt tokens served from cache in the last 2 minutes. Each replica has its own cache. A returning dot with a <b style={{ color: '#38bdf8' }}>light-blue ring</b> was answered mostly from cache.</>,
           <><b>llm-d</b>, the gateway's scheduler, sends a request to the replica likely to have its start cached, and requests nobody has seen to the least recently used one. So a <b>new replica starts low</b>: it gets the uncacheable work, and warms up as it serves.</>,
         ],
         now: stat?.prefixCaching === false

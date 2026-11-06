@@ -30,6 +30,8 @@ export interface ReplicaStatus {
   /** Requests this replica finished per second over the last minute: where llm-d
    *  actually sent traffic, since responses do not name the replica that answered. */
   requestsPerSecond: number;
+  /** ip:port, matching the gateway's `x-maas-upstream` for requests this replica served. */
+  instance: string | null;
   status: ModelStatus;
 }
 export type PromptShape = 'short' | 'shared-prefix' | 'unique-prefix';
@@ -38,7 +40,7 @@ export type TrafficPattern = 'concurrent' | 'sequential' | 'random_burst';
 export type ServerEvent =
   | { type: 'config'; models: ModelInfo[]; users: UserInfo[]; trafficRunning: boolean }
   | { type: 'request_start'; requestId: string; user: string; model: string; question: string }
-  | { type: 'request_complete'; requestId: string; user: string; model: string; latencyMs: number; tokensUsed: number; answer: string }
+  | { type: 'request_complete'; requestId: string; user: string; model: string; latencyMs: number; tokensUsed: number; answer: string; upstream?: string; promptTokens?: number; cachedTokens?: number }
   /** `source`: the MaaS gateway's own limit, or the external provider's own rate limit. */
   | { type: 'rate_limited'; requestId: string; user: string; model: string; source?: LimitSource; message?: string }
   | { type: 'request_error'; requestId: string; user: string; model: string; error: string; status?: number }
@@ -65,6 +67,10 @@ export interface ActiveRequest {
   /** Set when the gateway turned the request away, at which of its stages: the dot then
    *  bounces back from the gateway instead of going on to a model. */
   rejectedAt?: GatewayStage;
+  /** Once answered: the replica that really served it (from the gateway's
+   *  `x-maas-upstream`), and the share of its prompt vLLM took from the prefix cache. */
+  servedReplica?: number;
+  cachedFraction?: number;
 }
 
 export type LimitSource = 'gateway' | 'provider';
@@ -101,6 +107,10 @@ export interface FeedEntry {
   rateLimited?: boolean;
   /** A 429 from the external provider (its own rate limit), not from MaaS. */
   providerLimited?: boolean;
+  /** Who served it, e.g. "Qwen3 8B #1", and how much of the prompt came from cache. */
+  servedBy?: string;
+  promptTokens?: number;
+  cachedTokens?: number;
   providerMessage?: string;
   error?: string;
   status?: number;

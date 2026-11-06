@@ -240,7 +240,7 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
       const boxH = (b: typeof boxes[number]) =>
         modelRectH + (models[b.modelIdx]!.type === 'internal' && !b.provisioning ? BARS_H : 0);
       const groups = [
-        { label: 'ON OUR GPUs', note: 'AI Inference on OpenShift AI', external: false, members: boxes.filter(b => models[b.modelIdx]!.type === 'internal') },
+        { label: 'ON OUR CLUSTER', note: 'AI Inference on OpenShift AI', external: false, members: boxes.filter(b => models[b.modelIdx]!.type === 'internal') },
         { label: 'EXTERNAL PROVIDERS', note: 'via the MaaS gateway', external: true, members: boxes.filter(b => models[b.modelIdx]!.type !== 'internal') },
       ].filter(g => g.members.length > 0);
       const contentH = boxes.reduce((a, b) => a + boxH(b), 0) + groups.length * (MODEL_GROUP_HEAD + 2 * MODEL_GROUP_PAD);
@@ -315,6 +315,10 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
           routedRef.current.set(req.requestId, replica);
         }
         const mPos = readyBoxes.find(b => b.replicaIdx === replica)!;
+        // On the way back the dot leaves from the replica that really served it, which is
+        // known only once the response names it.
+        const backFrom = req.servedReplica !== undefined
+          ? readyBoxes.find(b => b.replicaIdx === req.servedReplica) ?? mPos : mPos;
 
         let pos: { x: number; y: number } | null = null;
         if (req.phase === 'to_gateway') {
@@ -324,10 +328,14 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
         } else if (req.phase === 'returning') {
           const t = Math.min(elapsed / (SEGMENT_MS * 2), 1);
           pos = t < 0.5
-            ? getCurvePoint(mPos.x, mPos.y, layout.exit.x, layout.exit.y, t * 2)
+            ? getCurvePoint(backFrom.x, backFrom.y, layout.exit.x, layout.exit.y, t * 2)
             : getCurvePoint(layout.entry.x, layout.entry.y, uX, uY, (t - 0.5) * 2);
         }
-        if (pos) drawParticle(ctx, pos, color);
+        if (pos) {
+          drawParticle(ctx, pos, color);
+          // An answer mostly served from the prefix cache comes back ringed in cache blue.
+          if (req.phase === 'returning' && (req.cachedFraction ?? 0) >= 0.5) drawCacheRing(ctx, pos);
+        }
       }
 
       if (routedRef.current.size > 300) {
@@ -565,6 +573,17 @@ function drawStatusPill(ctx: CanvasRenderingContext2D, cardRight: number, cardTo
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, x + w / 2, y + h / 2 + 0.5);
+  ctx.restore();
+}
+
+/** The light-blue ring on a returning dot whose prompt came mostly from the prefix cache. */
+function drawCacheRing(ctx: CanvasRenderingContext2D, pos: { x: number; y: number }): void {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, 10.5, 0, Math.PI * 2);
+  ctx.strokeStyle = CACHE_COLOR;
+  ctx.lineWidth = 2;
+  ctx.stroke();
   ctx.restore();
 }
 

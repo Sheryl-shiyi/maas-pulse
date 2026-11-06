@@ -107,6 +107,12 @@ export interface InferenceResult {
   tokensUsed: number;
   latencyMs: number;
   rateLimited: boolean;
+  /** The backend that served the request (`x-maas-upstream`, ip:port): for an internal
+   *  model, the vLLM pod llm-d chose. */
+  upstream?: string;
+  /** Prompt tokens, and how many of them came from vLLM's prefix cache. */
+  promptTokens?: number;
+  cachedTokens?: number;
   /** For a 429: the MaaS gateway's own limit, or the provider behind it. */
   limitedBy?: LimitedBy;
   /** The provider's own words for its 429. */
@@ -165,9 +171,12 @@ export async function sendInference(user: string, model: string, question: strin
     const answer = completion.choices[0]?.message?.content ?? '';
     const tokensUsed = completion.usage?.total_tokens ?? 0;
     const rateLimitInfo = parseRateLimitHeaders(rawResponse.headers);
+    const upstream = rawResponse.headers.get('x-maas-upstream') ?? undefined;
+    const promptTokens = completion.usage?.prompt_tokens;
+    const cachedTokens = completion.usage?.prompt_tokens_details?.cached_tokens ?? undefined;
 
     console.log(`[maas] ${user} → ${model}: OK ${latencyMs}ms, ${tokensUsed} tokens`);
-    return { answer, tokensUsed, latencyMs, rateLimited: false, rateLimitInfo };
+    return { answer, tokensUsed, latencyMs, rateLimited: false, rateLimitInfo, upstream, promptTokens, cachedTokens };
   } catch (err: unknown) {
     const latencyMs = Math.round(performance.now() - start);
 

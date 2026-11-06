@@ -37,6 +37,9 @@ export interface ReplicaStatus {
   /** Requests this replica finished per second over the last minute: where llm-d
    *  actually sent traffic, since responses do not name the replica that answered. */
   requestsPerSecond: number;
+  /** This replica's address as vLLM's metrics label it (ip:port), the value the gateway puts
+   *  in `x-maas-upstream` for requests it served. */
+  instance: string | null;
   status: ModelStatus;
 }
 export type TrafficPattern = 'concurrent' | 'sequential' | 'random_burst';
@@ -45,7 +48,10 @@ export type ServerEvent =
   | { type: 'config'; models: ModelInfo[]; users: Omit<UserInfo, 'apiKey' | 'group'>[]; trafficRunning: boolean }
 
   | { type: 'request_start'; requestId: string; user: string; model: string; question: string }
-  | { type: 'request_complete'; requestId: string; user: string; model: string; latencyMs: number; tokensUsed: number; answer: string }
+  /** `upstream`: the pod that served it (ip:port); `cachedTokens` of `promptTokens` came from
+   *  vLLM's prefix cache. Absent when the gateway or model did not report them. */
+  | { type: 'request_complete'; requestId: string; user: string; model: string; latencyMs: number; tokensUsed: number; answer: string;
+      upstream?: string; promptTokens?: number; cachedTokens?: number }
   /** `source`: the MaaS gateway's own limit, or the external provider's own rate limit. */
   | { type: 'rate_limited'; requestId: string; user: string; model: string; source: 'gateway' | 'provider'; message?: string }
   | { type: 'request_error'; requestId: string; user: string; model: string; error: string; status?: number }

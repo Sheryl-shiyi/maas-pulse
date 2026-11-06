@@ -171,6 +171,9 @@ async function fireRequest(user: string, model: string, signal: AbortSignal) {
         latencyMs: result.latencyMs,
         tokensUsed: result.tokensUsed,
         answer: result.answer,
+        upstream: result.upstream,
+        promptTokens: result.promptTokens,
+        cachedTokens: result.cachedTokens,
       });
     }
   } catch (err) {
