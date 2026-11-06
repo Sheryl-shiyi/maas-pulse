@@ -16,6 +16,8 @@ export interface Scene {
   promptShape: PromptShape;
   /** Ticks per second (Concurrent: every selected user sends on each tick). */
   rate: number;
+  /** Length of the shared or unique document before each question; default 1,500. */
+  promptTokens?: number;
   watch: string[];
 }
 
@@ -59,8 +61,13 @@ export const SCENES: Scene[] = [
     pattern: 'concurrent',
     promptShape: 'unique-prefix',
     rate: 1,
+    // Measured 2026-11-06 on vLLM 0.24, one A10G: ~1,500 tokens kept every request in the
+    // batch (KV peaked at 78%, nothing queued) and never triggered; 3,000-4,000 triggered in
+    // ~10 s but most requests then hit the 30 s client timeout; ~2,000 triggered in 18 s with
+    // KV at 90-100% and 1 timeout in 155 requests.
+    promptTokens: 2000,
     watch: [
-      'Long prompts nobody has sent before: vLLM must read every token, so a queue builds.',
+      'Long prompts nobody has sent before: vLLM must read every token, and the GPU memory fills up.',
       'The autoscaler adds a replica and the notice says why. A new GPU takes 2 to 10 minutes.',
       'Keep it running: once #2 is ready, llm-d splits the load about evenly.',
     ],

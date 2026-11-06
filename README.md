@@ -518,7 +518,7 @@ running traffic, sets users, models, prompt shape and rate, starts again, and pu
    the Free tier is throttled while Pro and Max carry on.
 2. **vLLM: one GPU, many requests**: Pro and Max on Qwen3, short prompts; dozens in flight
    on one GPU and nothing queued.
-3. **Autoscaling under real load**: Max on Qwen3 with long unique prompts; a queue builds,
+3. **Autoscaling under real load**: Max on Qwen3 with ~2000-token unique prompts; a queue builds,
    the autoscaler adds a replica and says why. Keep it running until #2 takes its share.
 4. **llm-d: cache-aware routing**: Max on Qwen3 with a shared document; traffic sticks to the
    warm replica. Needs the second replica from scene 3.
@@ -553,16 +553,21 @@ the whole Free cohort moves at once.
 
 | Setting | Value |
 |---|---|
-| Prompt | Unique prefix, ~1500 tokens |
+| Prompt | Unique prefix, **~2000 tokens** (scene 3 sets this) |
 | Rate | **1/s** |
 | Users | Max tier only (user7-9) |
 
-KV cache crosses 80% at around **40 seconds** and the queue climbs gently — 0, then 8,
-then 25 — at which point the autoscaler adds a replica. The new pod takes 5-10 minutes
-to pull images and load, so start this segment early if you want the second replica on
-screen.
+Measured on 2026-11-06 with vLLM 0.24 on one A10G: KV cache reaches 90-100% and the
+queue passes 5 within **about 20 seconds**, and the autoscaler adds a replica; 1 of 155
+requests timed out. The new pod takes 2-10 minutes (less when the spare node already has
+the images), so start this segment early if you want the second replica on screen.
 
-Max tier only, because a 1500-token prompt exceeds the Free tier's entire 1000/min
+The prompt length is a narrow band. At ~1500 tokens (enough on vLLM 0.18) every request
+now fits in the batch: KV peaks at 78%, nothing queues, and nothing scales. At 3000-4000
+tokens the autoscaler fires in ~10 seconds, but most requests then wait past the client's
+30-second timeout until the second replica is ready.
+
+Max tier only, because a 2000-token prompt exceeds the Free tier's entire per-minute
 allowance in a single request; the others would simply sit at 429 and show nothing.
 
 **Keep the unique-prefix traffic running once the second replica is Ready** if you want

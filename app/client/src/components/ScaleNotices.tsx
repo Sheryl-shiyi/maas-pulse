@@ -49,7 +49,7 @@ export function ScaleNotices({ notices, onDismiss }: ScaleNoticesProps) {
             </table>
             <div style={styles.next}>
               {up
-                ? 'A new vLLM replica is starting on a spare GPU. Pulling the images and loading the model takes 5–10 minutes; the existing replica keeps serving meanwhile. A busy batch alone never triggers this: only requests that cannot get in, or GPU memory running out.'
+                ? 'A new vLLM replica is starting on a spare GPU. Pulling the images and loading the model takes 2–10 minutes (less when the node already has them); the existing replica keeps serving meanwhile. A busy batch alone never triggers this: only requests that cannot get in, or GPU memory running out.'
                 : 'The extra replica is stopped and its GPU released; the remaining replica serves all traffic.'}
             </div>
           </div>

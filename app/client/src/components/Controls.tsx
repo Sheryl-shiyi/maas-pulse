@@ -19,6 +19,8 @@ export function Controls({ models, users, trafficRunning, connected, send, onTra
   const [pattern, setPattern] = useState<TrafficPattern>('concurrent');
   const [rate, setRate] = useState(3);
   const [promptShape, setPromptShape] = useState<PromptShape>('short');
+  /** Document length for the long prompt shapes; scenes may set it. */
+  const [promptTokens, setPromptTokens] = useState(1500);
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
 
@@ -42,6 +44,7 @@ export function Controls({ models, users, trafficRunning, connected, send, onTra
       modelsEnabled: selectedModels.length > 0 ? selectedModels : models.map(m => m.name),
       ratePerSecond: rate,
       promptShape,
+      promptTokens,
     });
   };
 
@@ -55,13 +58,14 @@ export function Controls({ models, users, trafficRunning, connected, send, onTra
     const m = models.filter(scene.models).map(x => x.name);
     setPattern(scene.pattern);
     setPromptShape(scene.promptShape);
+    setPromptTokens(scene.promptTokens ?? 1500);
     setRate(scene.rate);
     setSelectedUsers(u);
     setSelectedModels(m);
     onScene(index);
     const start = () => send({
       type: 'start_traffic', pattern: scene.pattern, usersEnabled: u, modelsEnabled: m,
-      ratePerSecond: scene.rate, promptShape: scene.promptShape,
+      ratePerSecond: scene.rate, promptShape: scene.promptShape, promptTokens: scene.promptTokens ?? 1500,
     });
     // The generator ignores a start while it is running, so stop first.
     if (trafficRunning) { send({ type: 'stop_traffic' }); setTimeout(start, 500); } else start();
@@ -165,7 +169,7 @@ export function Controls({ models, users, trafficRunning, connected, send, onTra
           "Rate" alone misleads: in Concurrent mode every selected user fires per tick. */}
       <div style={styles.hint}>
         <span><b style={styles.hintKey}>{PATTERN_NAMES[pattern]}:</b> {patternHint(pattern, rate, selectedUsers.length || users.length)}</span>
-        <span><b style={styles.hintKey}>{PROMPT_NAMES[promptShape]}:</b> {PROMPT_HINTS[promptShape]}</span>
+        <span><b style={styles.hintKey}>{PROMPT_NAMES[promptShape]}:</b> {promptHint(promptShape, promptTokens)}</span>
       </div>
 
       <div style={styles.row}>
@@ -225,11 +229,17 @@ function patternHint(pattern: TrafficPattern, rate: number, users: number): stri
   }
 }
 
-const PROMPT_HINTS: Record<PromptShape, string> = {
-  short: 'one question from a pool of 50. Cheap; a repeated question is mostly served from the prefix cache.',
-  'shared-prefix': 'the same ~1,500-token document before every question. Shows cache hits, and llm-d keeping requests on the replica that has it cached.',
-  'unique-prefix': 'a different ~1,500-token document every time. Nothing to reuse, so it fills GPU memory and queues: use it to trigger autoscaling. It uses up a tier\u2019s token budget fast.',
-};
+function promptHint(shape: PromptShape, tokens: number): string {
+  const doc = `~${tokens.toLocaleString()}-token document`;
+  switch (shape) {
+    case 'short':
+      return 'one question from a pool of 50. Cheap; a repeated question is mostly served from the prefix cache.';
+    case 'shared-prefix':
+      return `the same ${doc} before every question. Shows cache hits, and llm-d keeping requests on the replica that has it cached.`;
+    case 'unique-prefix':
+      return `a different ${doc} every time. Nothing to reuse, so it fills GPU memory and queues: use it to trigger autoscaling. It uses up a tier\u2019s token budget fast.`;
+  }
+}
 
 const styles: Record<string, React.CSSProperties> = {
   container: { padding: '12px 20px', background: '#131824', borderBottom: '1px solid #1e293b' },
