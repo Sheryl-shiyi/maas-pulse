@@ -174,6 +174,36 @@ export function instanceByPod(rows: Record<string, string | number>[]): Map<stri
   return out;
 }
 
+/**
+ * Window for the speed readings. Shorter than the others on purpose: in the demo the
+ * audience watches the first-token time climb as long prompts arrive and fall again as
+ * the cache warms, and a one-minute average lags that by most of a scene. vLLM pods are
+ * scraped every 5 s, so 30 s still holds six samples.
+ */
+const SPEED_WINDOW = '30s';
+
+/**
+ * Average of a vLLM histogram per pod over the window: rate of its `_sum` divided by
+ * rate of its `_count`. Exact, unlike `histogram_quantile`, which interpolates inside
+ * vLLM's coarse buckets (0.25 s to 0.5 s is one bucket for the first-token time).
+ * A pod that finished nothing in the window is absent rather than zero: it has no
+ * speed to report, and zero would read as instant.
+ */
+export function meanByPod(
+  sums: Record<string, string | number>[],
+  counts: Record<string, string | number>[],
+): Map<string, number> {
+  const countByPod = new Map(counts.map(r => [String(r['pod'] ?? ''), Number(r['value'])]));
+  const out = new Map<string, number>();
+  for (const r of sums) {
+    const pod = String(r['pod'] ?? '');
+    const n = countByPod.get(pod) ?? 0;
+    const total = Number(r['value']);
+    if (pod && n > 0 && Number.isFinite(total)) out.set(pod, total / n);
+  }
+  return out;
+}
+
 async function pollModelMetrics(models: ModelInfo[]) {
   const [running, waiting, kvCache, latency, cacheHits, cacheQueries, cacheConfig, served] = await Promise.all([
     query('vllm:num_requests_running'),
@@ -186,6 +216,15 @@ async function pollModelMetrics(models: ModelInfo[]) {
     // Requests each replica actually finished in the last minute. The only record of
     // where llm-d sent traffic: responses do not say which replica answered.
     query('sum by (pod, model_name) (rate(vllm:request_success_total[1m]))'),
+  ]);
+  // How fast each replica answers: time to the first token, the pace of each answer
+  // once it is going, and all the answer tokens the replica produces together.
+  const [ttftSum, ttftCount, itlSum, itlCount, generated] = await Promise.all([
+    query(`sum by (pod, model_name) (rate(vllm:time_to_first_token_seconds_sum[${SPEED_WINDOW}]))`),
+    query(`sum by (pod, model_name) (rate(vllm:time_to_first_token_seconds_count[${SPEED_WINDOW}]))`),
+    query(`sum by (pod, model_name) (rate(vllm:inter_token_latency_seconds_sum[${SPEED_WINDOW}]))`),
+    query(`sum by (pod, model_name) (rate(vllm:inter_token_latency_seconds_count[${SPEED_WINDOW}]))`),
+    query(`sum by (pod, model_name) (rate(vllm:generation_tokens_total[${SPEED_WINDOW}]))`),
   ]);
 
   const scaleMetrics: { model: string; queuedRequests: number; kvCachePercent: number }[] = [];
@@ -208,6 +247,9 @@ async function pollModelMetrics(models: ModelInfo[]) {
     const hitsByPod = byPod(cacheHits);
     const queriesByPod = byPod(cacheQueries);
     const servedByPod = byPod(served);
+    const ttftByPod = meanByPod(mine(ttftSum), mine(ttftCount));
+    const itlByPod = meanByPod(mine(itlSum), mine(itlCount));
+    const generatedByPod = byPod(generated);
 
     const pods = orderedPods(baseName, [...new Set([
       ...runningByPod.keys(), ...waitingByPod.keys(), ...kvByPod.keys(),
@@ -232,6 +274,10 @@ async function pollModelMetrics(models: ModelInfo[]) {
         kvCapacityTokens: capacityByPod.get(pod) ?? null,
         requestsPerSecond: Math.round((servedByPod.get(pod) ?? 0) * 100) / 100,
         instance: instances.get(pod) ?? null,
+        firstTokenSeconds: roundOrNull(ttftByPod.get(pod), 100),
+        // One token every N seconds per answer, turned into answer tokens per second.
+        perRequestTokensPerSecond: roundOrNull(itlByPod.has(pod) && itlByPod.get(pod)! > 0 ? 1 / itlByPod.get(pod)! : undefined, 1),
+        outputTokensPerSecond: Math.round(generatedByPod.get(pod) ?? 0),
         status: computeStatus(q, kv),
       };
     });
@@ -262,6 +308,10 @@ async function pollModelMetrics(models: ModelInfo[]) {
   }
 
   await checkAndScale(scaleMetrics);
+}
+
+function roundOrNull(v: number | undefined, scale: number): number | null {
+  return v === undefined || !Number.isFinite(v) ? null : Math.round(v * scale) / scale;
 }
 
 export function startPolling(models: ModelInfo[], intervalMs = 3000) {

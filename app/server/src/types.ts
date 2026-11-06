@@ -40,6 +40,13 @@ export interface ReplicaStatus {
   /** This replica's address as vLLM's metrics label it (ip:port), the value the gateway puts
    *  in `x-maas-upstream` for requests it served. */
   instance: string | null;
+  /** Average seconds from a request arriving to its first answer token, last 30 s:
+   *  includes time queued and time spent reading the prompt. Null when nothing finished. */
+  firstTokenSeconds: number | null;
+  /** Answer tokens per second for one request once it is generating; null when idle. */
+  perRequestTokensPerSecond: number | null;
+  /** Answer tokens per second this replica produced across all its requests together. */
+  outputTokensPerSecond: number;
   status: ModelStatus;
 }
 export type TrafficPattern = 'concurrent' | 'sequential' | 'random_burst';

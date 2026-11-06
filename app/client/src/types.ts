@@ -32,6 +32,13 @@ export interface ReplicaStatus {
   requestsPerSecond: number;
   /** ip:port, matching the gateway's `x-maas-upstream` for requests this replica served. */
   instance: string | null;
+  /** Average seconds from a request arriving to its first answer token, last 30 s:
+   *  includes time queued and time spent reading the prompt. Null when nothing finished. */
+  firstTokenSeconds: number | null;
+  /** Answer tokens per second for one request once it is generating; null when idle. */
+  perRequestTokensPerSecond: number | null;
+  /** Answer tokens per second this replica produced across all its requests together. */
+  outputTokensPerSecond: number;
   status: ModelStatus;
 }
 export type PromptShape = 'short' | 'shared-prefix' | 'unique-prefix';

@@ -4,6 +4,7 @@ import type { TraceView, TraceFocus } from './traceSteps';
 import type { ModelState, UserState, ActiveRequest, Stats, GatewayStage, EppWeights } from '../types';
 import { providerOf, providerLabel, drawProviderLogo } from './providerLogos';
 import { userColors } from './colors';
+import { formatSeconds } from './format';
 
 const STATUS_COLORS: Record<string, string> = { healthy: '#4caf50', busy: '#ff9800', overloaded: '#f44336' };
 const RATE_LIMITED_COLOR = '#475569';
@@ -107,8 +108,8 @@ const GATEWAY_HEADER_H = 36;
 const BOUNDARY_TOP = 30;
 const BOUNDARY_PAD = 14;
 
-/** Height a model box needs below it for the load and cache bars. */
-const BARS_H = 50;
+/** Height a model box needs below it for the load and cache bars and the speed line. */
+const BARS_H = 64;
 /** The model column's group frames: two-line header, then padding around the boxes. */
 const MODEL_GROUP_HEAD = 30;
 const MODEL_GROUP_PAD = 8;
@@ -522,6 +523,12 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
                 : stat.cacheHitPercent === null ? 'idle' : `${stat.cacheHitPercent}%`,
               CAPTION_COLOR);
             if (!again) regions.push({ topic: 'cache', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: { x: barX, y: cacheY - 3, w: modelRectW, h: 23 } });
+            // How fast it answers: the wait for the first token on the left (queueing and
+            // prompt reading both show up here), all its answer tokens per second on the
+            // right (batching shows up here). No bar: these have no natural maximum.
+            const speedY = cacheY + 27;
+            drawSpeed(ctx, barX, speedY, modelRectW, stat.firstTokenSeconds, stat.outputTokensPerSecond);
+            if (!again) regions.push({ topic: 'speed', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: { x: barX, y: speedY - 7, w: modelRectW, h: 14 } });
           }
         }
       };
@@ -1244,6 +1251,30 @@ function drawCaption(
   ctx.fillStyle = valueColor;
   ctx.textAlign = 'right';
   ctx.fillText(value, x + w, y);
+}
+
+/**
+ * The speed line under a replica's bars: "First token (i) 0.31 s" on the left, total
+ * answer tokens per second on the right, or "idle" when nothing finished recently.
+ */
+function drawSpeed(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number,
+  firstToken: number | null, tokensPerSecond: number,
+): void {
+  if (firstToken === null) {
+    drawCaption(ctx, x, y, w, 'Speed', 'idle', CAPTION_COLOR);
+    return;
+  }
+  drawCaption(ctx, x, y, w, 'First token', `${tokensPerSecond.toLocaleString()} tok/s`, CAPTION_COLOR);
+  // The first-token reading sits just after the (i), so the right edge stays free
+  // for the throughput.
+  ctx.font = font(9);
+  const after = x + ctx.measureText('First token').width + 16;
+  ctx.font = font(9, 'bold');
+  ctx.fillStyle = CAPTION_COLOR;
+  ctx.textAlign = 'left';
+  ctx.fillText(formatSeconds(firstToken), after, y);
 }
 
 /** One easing step toward a target, snapping once the remaining gap is invisible. */

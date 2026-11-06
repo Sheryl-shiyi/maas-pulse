@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ModelState, ReplicaStatus, Stats, EppWeights } from '../types';
+import { formatSeconds } from './format';
 
 /** What can be explained by clicking it in the topology. */
 export type HelpTopic =
-  | 'inflight' | 'cache' | 'replica' | 'external'
+  | 'inflight' | 'cache' | 'speed' | 'replica' | 'external'
   | 'gw-auth' | 'gw-access' | 'gw-limit' | 'gw-route' | 'gw-meter'
   | 'llmd';
 
@@ -122,6 +123,17 @@ function modelContent(target: HelpTarget, model: ModelState, stat: ReplicaStatus
           : stat?.cacheHitPercent === null || stat?.cacheHitPercent === undefined
             ? <>Idle: no requests in the last 2 minutes.</>
             : <>Now: {stat.cacheHitPercent}% of prompt tokens came from cache.</>,
+      };
+    case 'speed':
+      return {
+        title: 'Speed: how fast this vLLM answers',
+        body: [
+          <><b>First token</b>: the average wait, over the last 30 seconds, from a request reaching vLLM to the first word of its answer. Time spent queued and time spent reading the prompt both count, so a queue or long new prompts push it up, and <b>cache hits</b> bring it down: vLLM skips the part of the prompt it already holds.</>,
+          <><b>tok/s</b>: answer tokens this replica produces per second, all its requests together. With <b>continuous batching</b> one GPU generates for many requests at once, so the total grows with the batch while each answer keeps a steady pace of its own.</>,
+        ],
+        now: stat?.firstTokenSeconds == null
+          ? <>Idle: no requests finished in the last 30 seconds.</>
+          : <>Now: first token in {formatSeconds(stat.firstTokenSeconds)} · {stat.outputTokensPerSecond.toLocaleString()} tokens/s in total{stat.perRequestTokensPerSecond != null ? <> · each answer about {Math.round(stat.perRequestTokensPerSecond)} tokens/s</> : null} · {stat.runningRequests} running</>,
       };
     default:
       return {
