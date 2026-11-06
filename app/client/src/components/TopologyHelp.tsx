@@ -4,7 +4,8 @@ import type { ModelState, ReplicaStatus, Stats } from '../types';
 /** What can be explained by clicking it in the topology. */
 export type HelpTopic =
   | 'inflight' | 'cache' | 'replica' | 'external'
-  | 'gw-auth' | 'gw-access' | 'gw-limit' | 'gw-route' | 'gw-meter';
+  | 'gw-auth' | 'gw-access' | 'gw-limit' | 'gw-route' | 'gw-meter'
+  | 'llmd';
 
 export interface HelpTarget {
   topic: HelpTopic;
@@ -20,6 +21,8 @@ interface HelpPopoverProps {
   model: ModelState | undefined;
   stat: ReplicaStatus | undefined;
   stats: Stats;
+  /** Every model, for summaries that span them (llm-d). */
+  models: ModelState[];
   containerW: number;
   containerH: number;
   onClose: () => void;
@@ -32,7 +35,7 @@ const WIDTH = 330;
  * inference cannot be expected to read on sight. Shown only on click, so the view stays
  * clean for people who know it, and each one includes the live reading it explains.
  */
-export function HelpPopover({ target, model, stat, stats, containerW, containerH, onClose }: HelpPopoverProps) {
+export function HelpPopover({ target, model, stat, stats, models, containerW, containerH, onClose }: HelpPopoverProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -53,7 +56,8 @@ export function HelpPopover({ target, model, stat, stats, containerW, containerH
   const [height, setHeight] = useState(0);
   useLayoutEffect(() => { setHeight(boxRef.current?.offsetHeight ?? 0); });
   const top = Math.max(8, Math.min(rect.y - 12, containerH - height - 8));
-  const content = gateway ? gatewayContent(target.topic, stats) : model ? modelContent(target, model, stat) : null;
+  const content = target.topic === 'llmd' ? llmdContent(models)
+    : gateway ? gatewayContent(target.topic, stats) : model ? modelContent(target, model, stat) : null;
   if (!content) return null;
 
   return (
@@ -126,6 +130,22 @@ function modelContent(target: HelpTarget, model: ModelState, stat: ReplicaStatus
         ],
       };
   }
+}
+
+function llmdContent(models: ModelState[]): Content {
+  const internal = models.filter(m => m.type === 'internal');
+  return {
+    title: 'llm-d: picks the replica for every request',
+    body: [
+      <>Requests for a model on our cluster pass through <b>llm-d</b>, the inference scheduler. It looks at every replica of that model and sends the request to the one likely to answer fastest.</>,
+      <>Fastest means: the start of the prompt is already in its cache, nothing is queued, and its memory has room. Without llm-d, requests are spread at random, and every replica rebuilds caches the others already hold.</>,
+      <>Same vLLM underneath; llm-d makes the distribution smarter. Each model has its own scheduler; external models do not go through one.</>,
+    ],
+    now: <>Now: {internal.map(m => {
+      const rate = m.replicaStats.reduce((a, r) => a + (r.requestsPerSecond ?? 0), 0);
+      return `${m.displayName}: ${m.replicas} replica${m.replicas === 1 ? '' : 's'}, ${rate.toFixed(1)} req/s`;
+    }).join(' · ')} (averaged over the last minute)</>,
+  };
 }
 
 function gatewayContent(topic: HelpTopic, stats: Stats): Content {

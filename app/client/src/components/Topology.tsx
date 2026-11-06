@@ -29,6 +29,8 @@ function font(size: number, weight = '', family = '-apple-system, sans-serif'): 
   return `${weight} ${Math.round(size * TEXT_SCALE * 2) / 2}px ${family}`.trim();
 }
 const GATEWAY_COLOR = '#ff9800';
+/** llm-d's accent: a colour nothing else on the canvas uses. */
+const LLMD_COLOR = '#e879f9';
 /** MaaS refused the request: its own token limit, authentication or access. */
 const BLOCKED_COLOR = '#ef4444';
 /** The provider behind an external model refused it (its own rate limit), not MaaS. */
@@ -170,7 +172,13 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
 
     const modelX = w * 0.84;
     const modelLeft = modelX - 105;
-    const gatewayX = (bandX + bandW + modelLeft) / 2;
+    // llm-d sits between the gateway and our own replicas, inside the cluster group, which
+    // widens to the left to hold it. External models have no llm-d in front of them.
+    const hasInternal = models.some(m => m.type === 'internal');
+    const llmdW = 124;
+    const llmdX = modelLeft - 34 - llmdW / 2;
+    const clusterLeft = llmdX - llmdW / 2 - 12;
+    const gatewayX = (bandX + bandW + (hasInternal ? clusterLeft : modelLeft)) / 2;
     const gatewayY = h * 0.5;
     const gwW = clamp(w * 0.23, 232, 262);
     const stageH = clamp((h * 0.55 - GATEWAY_HEADER_H) / STAGES.length, 36, 50);
@@ -179,6 +187,8 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
 
     return {
       modelX, gatewayY, gateway, stageH, bands, userPositions,
+      llmd: hasInternal ? { x: llmdX, w: llmdW, h: 58 } : null,
+      clusterLeft,
       entry: { x: gateway.x, y: gatewayY },
       exit: { x: gateway.x + gateway.w, y: gatewayY },
     };
@@ -260,17 +270,34 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
           cursor += boxH(b) + (i < g.members.length - 1 ? inner : 0);
         });
         cursor += MODEL_GROUP_PAD;
-        drawModelGroup(ctx, frameX, top, frameW, cursor - top, g.label, g.note, g.external);
+        const left = !g.external && layout.llmd ? layout.clusterLeft : frameX;
+        drawModelGroup(ctx, left, top, frameX + frameW - left, cursor - top, g.label, g.note, g.external);
         cursor += outer;
       }
+
+      // llm-d: vertically centred on the replicas it chooses between.
+      const internalBoxes = boxes.filter(b => models[b.modelIdx]!.type === 'internal');
+      const llmd = layout.llmd && internalBoxes.length > 0 ? (() => {
+        const cy = (internalBoxes[0]!.y + internalBoxes[internalBoxes.length - 1]!.y) / 2;
+        return { x: layout.llmd.x - layout.llmd.w / 2, y: cy - layout.llmd.h / 2, w: layout.llmd.w, h: layout.llmd.h };
+      })() : null;
+      const llmdIn = llmd ? { x: llmd.x, y: llmd.y + llmd.h / 2 } : null;
+      const llmdOut = llmd ? { x: llmd.x + llmd.w, y: llmd.y + llmd.h / 2 } : null;
+      const isInternal = (modelIdx: number) => models[modelIdx]!.type === 'internal';
+      // Lines end at a card's left edge, level with its centre, so a curve never crosses
+      // the captions of the card above. A dot then slides on, hidden, to the card's centre.
+      const doorOf = (b: { x: number; y: number }) => ({ x: b.x - modelRectW / 2, y: b.y });
 
       // Edges: every user into the gateway's left side, the gateway's right side out to
       // every model replica.
       for (const uPos of layout.userPositions) {
         drawCurve(ctx, uPos.anchorX, uPos.y, layout.entry.x, layout.entry.y, EDGE_COLOR);
       }
+      if (llmdIn) drawCurve(ctx, layout.exit.x, layout.exit.y, llmdIn.x, llmdIn.y, EDGE_COLOR);
       for (const box of boxes) {
-        drawCurve(ctx, layout.exit.x, layout.exit.y, box.x, box.y, box.provisioning ? '#1e293b' : EDGE_COLOR);
+        const from = isInternal(box.modelIdx) && llmdOut ? llmdOut : layout.exit;
+        const door = doorOf(box);
+        drawCurve(ctx, from.x, from.y, door.x, door.y, box.provisioning ? '#1e293b' : EDGE_COLOR);
       }
 
       // Particles. A request the gateway turned away finishes its trip to the gateway,
@@ -324,12 +351,35 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
         if (req.phase === 'to_gateway') {
           pos = getCurvePoint(uX, uY, layout.entry.x, layout.entry.y, Math.min(elapsed / SEGMENT_MS, 1));
         } else if (req.phase === 'to_model') {
-          pos = getCurvePoint(layout.exit.x, layout.exit.y, mPos.x, mPos.y, Math.min(elapsed / SEGMENT_MS, 1));
+          const t = Math.min(elapsed / SEGMENT_MS, 1);
+          const door = doorOf(mPos);
+          // Internal requests pass through llm-d (the dot goes under its card), then on
+          // to the replica it picked. External ones go straight to the provider.
+          const via = llmdIn && llmdOut && isInternal(modelIdx);
+          const split = via ? 0.45 : 0;
+          if (via && t < split) {
+            pos = getCurvePoint(layout.exit.x, layout.exit.y, llmdIn!.x, llmdIn!.y, t / split);
+          } else if (t < 0.85) {
+            const from = via ? llmdOut! : layout.exit;
+            pos = getCurvePoint(from.x, from.y, door.x, door.y, (t - split) / (0.85 - split));
+          } else {
+            pos = lerp(door, mPos, (t - 0.85) / 0.15);
+          }
         } else if (req.phase === 'returning') {
           const t = Math.min(elapsed / (SEGMENT_MS * 2), 1);
-          pos = t < 0.5
-            ? getCurvePoint(backFrom.x, backFrom.y, layout.exit.x, layout.exit.y, t * 2)
-            : getCurvePoint(layout.entry.x, layout.entry.y, uX, uY, (t - 0.5) * 2);
+          const door = doorOf(backFrom);
+          const via = llmdIn && llmdOut && isInternal(modelIdx);
+          if (t >= 0.5) {
+            pos = getCurvePoint(layout.entry.x, layout.entry.y, uX, uY, (t - 0.5) * 2);
+          } else if (t < 0.06) {
+            pos = lerp(backFrom, door, t / 0.06);
+          } else if (via && t < 0.3) {
+            pos = getCurvePoint(door.x, door.y, llmdOut!.x, llmdOut!.y, (t - 0.06) / 0.24);
+          } else if (via) {
+            pos = getCurvePoint(llmdIn!.x, llmdIn!.y, layout.exit.x, layout.exit.y, (t - 0.3) / 0.2);
+          } else {
+            pos = getCurvePoint(door.x, door.y, layout.exit.x, layout.exit.y, (t - 0.06) / 0.44);
+          }
         }
         if (pos) {
           drawParticle(ctx, pos, color);
@@ -344,6 +394,11 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
       }
 
       drawGateway(ctx, layout.gateway, layout.stageH, stats, gatewayFlash, now, regions);
+      if (llmd) {
+        // Glows briefly each time the gateway routes a request onward.
+        drawLlmd(ctx, llmd, now - gatewayFlash.route < 260 && gatewayFlash.route > 0);
+        regions.push({ topic: 'llmd', modelIdx: -1, replicaIdx: 0, rect: llmd });
+      }
       for (const p of bounced) drawBounced(ctx, p);
 
       for (const band of layout.bands) drawBand(ctx, band, users, models, colors);
@@ -479,6 +534,7 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
           model={helpModel}
           stat={helpModel?.replicaStats[help.replicaIdx]}
           stats={stats}
+          models={models}
           containerW={canvas?.clientWidth ?? 800}
           containerH={canvas?.clientHeight ?? 600}
           onClose={() => setHelp(null)}
@@ -512,6 +568,13 @@ function minHeightFor(
     + groupsUsed * (MODEL_GROUP_HEAD + 2 * MODEL_GROUP_PAD) + 8 * Math.max(boxes.length - groupsUsed, 0) + 10 * (groupsUsed + 1);
   const gateway = GATEWAY_HEADER_H + 36 * STAGES.length + 6 + 20;
   return Math.max(left, right, gateway);
+}
+
+/** llm-d's card: the inference scheduler between the gateway and our replicas. */
+function drawLlmd(ctx: CanvasRenderingContext2D, r: Rect, active: boolean): void {
+  drawCard(ctx, r.x, r.y, r.w, r.h, LLMD_COLOR, active);
+  drawText(ctx, 'llm-d', r.x + r.w / 2, r.y + r.h / 2 - 8, '#f1f5f9', 14, 'bold');
+  drawText(ctx, 'inference scheduler', r.x + r.w / 2, r.y + r.h / 2 + 11, '#f0abfc', 9);
 }
 
 /** One of the model column's two groups, styled like the tier bands on the left. */
@@ -1003,6 +1066,10 @@ function drawCurve(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: nu
   ctx.strokeStyle = color;
   ctx.lineWidth = 2;
   ctx.stroke();
+}
+
+function lerp(a: { x: number; y: number }, b: { x: number; y: number }, t: number) {
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
 }
 
 function getCurvePoint(x1: number, y1: number, x2: number, y2: number, t: number) {
