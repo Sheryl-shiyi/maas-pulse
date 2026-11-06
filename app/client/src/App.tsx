@@ -6,7 +6,7 @@ import { LiveFeed } from './components/LiveFeed';
 import { MetricsPanel } from './components/MetricsPanel';
 import { ChargebackView } from './components/ChargebackView';
 import { OidcView } from './components/OidcView';
-import type { ServerEvent, ModelInfo, UserInfo, ModelState, UserState, ActiveRequest, FeedEntry, Stats, GatewayStage, ScaleNotice } from './types';
+import type { ServerEvent, ModelInfo, UserInfo, ModelState, UserState, ActiveRequest, FeedEntry, Stats, GatewayStage, ScaleNotice, EppWeights } from './types';
 import { ScaleNotices } from './components/ScaleNotices';
 
 type ViewTab = 'traffic' | 'cost' | 'oidc';
@@ -49,6 +49,7 @@ export default function App() {
   const gatewayFlash = useRef<Record<GatewayStage, number>>({ auth: 0, access: 0, limit: 0, route: 0, meter: 0 });
   const [trafficRunning, setTrafficRunning] = useState(false);
   const [scaleNotices, setScaleNotices] = useState<ScaleNotice[]>([]);
+  const [eppWeights, setEppWeights] = useState<EppWeights | null>(null);
   const latencySamples = useRef<number[]>([]);
 
   /** The gateway stopped this request at `stage`: its dot finishes the trip to the
@@ -83,6 +84,7 @@ export default function App() {
         usersRef.current = newUsers;
         setUsers(newUsers);
         setTrafficRunning(event.trafficRunning);
+        setEppWeights(event.eppWeights ?? null);
         break;
       }
 
@@ -396,7 +398,7 @@ export default function App() {
           />
           <div style={styles.main}>
             <div style={styles.topologyArea}>
-              <Topology users={users} models={models} activeRequests={activeRequests} stats={stats} gatewayFlash={gatewayFlash.current} />
+              <Topology users={users} models={models} activeRequests={activeRequests} stats={stats} gatewayFlash={gatewayFlash.current} eppWeights={eppWeights} />
               <ScaleNotices
                 notices={scaleNotices}
                 onDismiss={id => setScaleNotices(prev => prev.filter(n => n.id !== id))}

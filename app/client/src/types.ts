@@ -38,7 +38,7 @@ export type PromptShape = 'short' | 'shared-prefix' | 'unique-prefix';
 export type TrafficPattern = 'concurrent' | 'sequential' | 'random_burst';
 
 export type ServerEvent =
-  | { type: 'config'; models: ModelInfo[]; users: UserInfo[]; trafficRunning: boolean }
+  | { type: 'config'; models: ModelInfo[]; users: UserInfo[]; trafficRunning: boolean; eppWeights?: EppWeights | null }
   | { type: 'request_start'; requestId: string; user: string; model: string; question: string }
   | { type: 'request_complete'; requestId: string; user: string; model: string; latencyMs: number; tokensUsed: number; answer: string; upstream?: string; promptTokens?: number; cachedTokens?: number }
   /** `source`: the MaaS gateway's own limit, or the external provider's own rate limit. */
@@ -74,6 +74,9 @@ export interface ActiveRequest {
 }
 
 export type LimitSource = 'gateway' | 'provider';
+
+/** llm-d's scorer weights, from the chart's `epp.weights`. */
+export interface EppWeights { queue: number; kvCache: number; prefixCache: number; noHitLru: number }
 
 /** One condition the autoscaler checked, with the reading it compared. */
 export interface ScaleCheck { label: string; value: number; limit: number; unit: string; tripped: boolean }

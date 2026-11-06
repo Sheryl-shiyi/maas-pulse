@@ -1,6 +1,6 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { HelpPopover, type HelpTarget } from './TopologyHelp';
-import type { ModelState, UserState, ActiveRequest, Stats, GatewayStage } from '../types';
+import type { ModelState, UserState, ActiveRequest, Stats, GatewayStage, EppWeights } from '../types';
 import { providerOf, providerLabel, drawProviderLogo } from './providerLogos';
 import { userColors } from './colors';
 
@@ -80,6 +80,8 @@ interface TopologyProps {
   stats: Stats;
   /** When each gateway stage last acted (performance.now()), owned by App. */
   gatewayFlash: Record<GatewayStage, number>;
+  /** llm-d's scorer weights from the chart, for its panel; null if not configured. */
+  eppWeights: EppWeights | null;
 }
 
 /** One subscription tier: its shared limits on top, then one compact row per user. */
@@ -108,7 +110,7 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
 }
 
-export function Topology({ users, models, activeRequests, stats, gatewayFlash }: TopologyProps) {
+export function Topology({ users, models, activeRequests, stats, gatewayFlash, eppWeights }: TopologyProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animRef = useRef<number>(0);
   const propsRef = useRef({ users, models, activeRequests, stats, gatewayFlash });
@@ -535,6 +537,7 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash }:
           stat={helpModel?.replicaStats[help.replicaIdx]}
           stats={stats}
           models={models}
+          eppWeights={eppWeights}
           containerW={canvas?.clientWidth ?? 800}
           containerH={canvas?.clientHeight ?? 600}
           onClose={() => setHelp(null)}

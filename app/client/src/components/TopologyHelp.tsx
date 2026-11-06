@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { ModelState, ReplicaStatus, Stats } from '../types';
+import type { ModelState, ReplicaStatus, Stats, EppWeights } from '../types';
 
 /** What can be explained by clicking it in the topology. */
 export type HelpTopic =
@@ -23,19 +23,20 @@ interface HelpPopoverProps {
   stats: Stats;
   /** Every model, for summaries that span them (llm-d). */
   models: ModelState[];
+  eppWeights: EppWeights | null;
   containerW: number;
   containerH: number;
   onClose: () => void;
 }
 
-const WIDTH = 330;
+const BASE_WIDTH = 330;
 
 /**
  * Plain-language explanations for the parts of the topology an audience new to LLM
  * inference cannot be expected to read on sight. Shown only on click, so the view stays
  * clean for people who know it, and each one includes the live reading it explains.
  */
-export function HelpPopover({ target, model, stat, stats, models, containerW, containerH, onClose }: HelpPopoverProps) {
+export function HelpPopover({ target, model, stat, stats, models, eppWeights, containerW, containerH, onClose }: HelpPopoverProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -44,6 +45,8 @@ export function HelpPopover({ target, model, stat, stats, models, containerW, co
 
   const { rect } = target;
   const gateway = target.topic.startsWith('gw-');
+  // llm-d's panel holds a table per model, so it is wider than the other explanations.
+  const WIDTH = target.topic === 'llmd' ? 440 : BASE_WIDTH;
   // Models sit at the right edge, so their help goes on the left. The gateway's goes on
   // its right, over the edges rather than over the users.
   const onLeft = rect.x - WIDTH - 14;
@@ -56,17 +59,17 @@ export function HelpPopover({ target, model, stat, stats, models, containerW, co
   const [height, setHeight] = useState(0);
   useLayoutEffect(() => { setHeight(boxRef.current?.offsetHeight ?? 0); });
   const top = Math.max(8, Math.min(rect.y - 12, containerH - height - 8));
-  const content = target.topic === 'llmd' ? llmdContent(models)
+  const content = target.topic === 'llmd' ? llmdContent(models, eppWeights)
     : gateway ? gatewayContent(target.topic, stats) : model ? modelContent(target, model, stat) : null;
   if (!content) return null;
 
   return (
-    <div ref={boxRef} style={{ ...styles.box, left, top, maxHeight: containerH - 16 }} role="dialog" aria-label={content.title}>
+    <div ref={boxRef} style={{ ...styles.box, width: WIDTH, left, top, maxHeight: containerH - 16 }} role="dialog" aria-label={content.title}>
       <div style={styles.header}>
         <span style={styles.title}>{content.title}</span>
         <button style={styles.close} onClick={onClose} aria-label="Close">×</button>
       </div>
-      {content.body.map((p, i) => <p key={i} style={styles.p}>{p}</p>)}
+      {content.body.map((p, i) => <div key={i} style={styles.p}>{p}</div>)}
       {content.now && <div style={styles.now}>{content.now}</div>}
     </div>
   );
@@ -132,20 +135,101 @@ function modelContent(target: HelpTarget, model: ModelState, stat: ReplicaStatus
   }
 }
 
-function llmdContent(models: ModelState[]): Content {
+/**
+ * llm-d's panel: what it scores, with the chart's real weights, then per model what each
+ * replica looks like to it right now and the share of traffic each one won. The picker
+ * does not publish its per-request scores, so these are its inputs, not its arithmetic;
+ * the reading line says in words why traffic splits the way it does.
+ */
+function llmdContent(models: ModelState[], w: EppWeights | null): Content {
   const internal = models.filter(m => m.type === 'internal');
+  const rules: { label: string; hint: string; weight?: number }[] = [
+    { label: 'Queue', hint: 'fewest requests waiting', weight: w?.queue },
+    { label: 'Prefix cache', hint: 'already holds the start of this prompt', weight: w?.prefixCache },
+    { label: 'KV cache free', hint: 'most GPU memory left', weight: w?.kvCache },
+    { label: 'Cold-replica bonus', hint: "if no one has it cached: the replica idle longest", weight: w?.noHitLru },
+  ];
   return {
     title: 'llm-d: picks the replica for every request',
     body: [
-      <>Requests for a model on our cluster pass through <b>llm-d</b>, the inference scheduler. It looks at every replica of that model and sends the request to the one likely to answer fastest.</>,
-      <>Fastest means: the start of the prompt is already in its cache, nothing is queued, and its memory has room. Without llm-d, requests are spread at random, and every replica rebuilds caches the others already hold.</>,
-      <>Same vLLM underneath; llm-d makes the distribution smarter. Each model has its own scheduler; external models do not go through one.</>,
+      <>For each request, <b>llm-d</b> scores every replica of the model and sends it to the best one. Same vLLM underneath; llm-d makes the distribution smarter. External models do not go through it.</>,
+      <table style={styles.table}>
+        <tbody>
+          {rules.map(r => (
+            <tr key={r.label}>
+              <td style={styles.ruleName}>{r.label}{r.weight !== undefined ? <span style={styles.weight}> ×{r.weight}</span> : null}</td>
+              <td style={styles.ruleHint}>{r.hint}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>,
+      ...internal.map(m => <ModelScoreboard key={m.name} model={m} />),
     ],
-    now: <>Now: {internal.map(m => {
-      const rate = m.replicaStats.reduce((a, r) => a + (r.requestsPerSecond ?? 0), 0);
-      return `${m.displayName}: ${m.replicas} replica${m.replicas === 1 ? '' : 's'}, ${rate.toFixed(1)} req/s`;
-    }).join(' · ')} (averaged over the last minute)</>,
+    now: <>Share: requests each replica finished in the last minute. The picker does not publish its per-request scores; these are what it looks at.</>,
   };
+}
+
+function ModelScoreboard({ model }: { model: ModelState }) {
+  const reps = model.replicaStats;
+  const total = reps.reduce((a, r) => a + (r.requestsPerSecond ?? 0), 0);
+  return (
+    <div style={styles.model}>
+      <div style={styles.modelName}>{model.displayName}</div>
+      <table style={styles.table}>
+        <thead>
+          <tr>
+            <th style={styles.th}>Replica</th><th style={styles.th}>Waiting</th><th style={styles.th}>KV used</th>
+            <th style={styles.th}>Cache hits</th><th style={styles.th}>Share</th>
+          </tr>
+        </thead>
+        <tbody>
+          {reps.map((r, i) => {
+            const share = total > 0 ? Math.round(((r.requestsPerSecond ?? 0) / total) * 100) : 0;
+            return (
+              <tr key={i}>
+                <td style={styles.td}>#{i + 1}</td>
+                <td style={{ ...styles.td, color: r.queuedRequests > 0 ? '#f87171' : '#cbd5e1' }}>{r.queuedRequests}</td>
+                <td style={styles.td}><MiniBar pct={r.kvCachePercent} color="#94a3b8" />{r.kvCachePercent}%</td>
+                <td style={styles.td}>
+                  {r.prefixCaching === false ? 'off'
+                    : r.cacheHitPercent === null ? '–'
+                    : <><MiniBar pct={r.cacheHitPercent} color="#38bdf8" />{r.cacheHitPercent}%</>}
+                </td>
+                <td style={styles.td}><MiniBar pct={share} color="#e879f9" />{total > 0 ? `${share}%` : '–'}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <div style={styles.reading}>{readingFor(model)}</div>
+    </div>
+  );
+}
+
+function MiniBar({ pct, color }: { pct: number; color: string }) {
+  return (
+    <span style={styles.barTrack}>
+      <span style={{ ...styles.barFill, width: `${Math.min(Math.max(pct, 0), 100)}%`, background: color }} />
+    </span>
+  );
+}
+
+/** Why traffic splits the way it does, in one line, from what llm-d can see. */
+function readingFor(m: ModelState): string {
+  const reps = m.replicaStats;
+  if (reps.length <= 1) return 'One replica, so every request goes to it: there is nothing to choose between yet.';
+  const busiest = reps.reduce((b, r, i) => (r.queuedRequests > reps[b]!.queuedRequests ? i : b), 0);
+  if (reps[busiest]!.queuedRequests > 0) {
+    return `#${busiest + 1} has ${reps[busiest]!.queuedRequests} waiting. Queue outweighs cache, so new requests go to the others.`;
+  }
+  const total = reps.reduce((a, r) => a + (r.requestsPerSecond ?? 0), 0);
+  if (total < 0.05) return 'No recent traffic, so nothing to choose between yet.';
+  const top = reps.reduce((b, r, i) => ((r.requestsPerSecond ?? 0) > (reps[b]!.requestsPerSecond ?? 0) ? i : b), 0);
+  if ((reps[top]!.requestsPerSecond ?? 0) / total >= 0.7) {
+    const hit = reps[top]!.cacheHitPercent;
+    return `#${top + 1} is warm${hit !== null ? ` (${hit}% cache hits)` : ''} and not queueing, so it wins most requests; the others get prompts nobody has cached.`;
+  }
+  return 'Traffic is spread: no replica has a clear cache advantage (long, unique prompts, for example), so load decides.';
 }
 
 function gatewayContent(topic: HelpTopic, stats: Stats): Content {
@@ -200,7 +284,7 @@ function gatewayContent(topic: HelpTopic, stats: Stats): Content {
 
 const styles: Record<string, React.CSSProperties> = {
   box: {
-    position: 'absolute', width: WIDTH, zIndex: 6, background: 'rgba(15, 23, 42, 0.98)', overflowY: 'auto',
+    position: 'absolute', zIndex: 6, background: 'rgba(15, 23, 42, 0.98)', overflowY: 'auto',
     border: '1px solid #334155', borderRadius: 8, padding: '10px 12px', color: '#cbd5e1',
     fontSize: 12, lineHeight: 1.5, boxShadow: '0 10px 28px rgba(0,0,0,0.5)',
   },
@@ -209,4 +293,15 @@ const styles: Record<string, React.CSSProperties> = {
   close: { background: 'transparent', border: 'none', color: '#94a3b8', fontSize: 18, lineHeight: 1, cursor: 'pointer', padding: 0 },
   p: { margin: '6px 0' },
   now: { marginTop: 8, paddingTop: 6, borderTop: '1px solid #1e293b', color: '#38bdf8', fontWeight: 600 },
+  table: { borderCollapse: 'collapse', width: '100%', fontSize: 11.5 },
+  ruleName: { padding: '2px 8px 2px 0', color: '#f1f5f9', fontWeight: 600, whiteSpace: 'nowrap' },
+  weight: { color: '#e879f9', fontWeight: 700 },
+  ruleHint: { padding: '2px 0', color: '#94a3b8' },
+  model: { marginTop: 10, paddingTop: 8, borderTop: '1px solid #1e293b' },
+  modelName: { color: '#f1f5f9', fontWeight: 700, marginBottom: 4 },
+  th: { textAlign: 'left', color: '#64748b', fontWeight: 600, padding: '2px 6px 2px 0', fontSize: 10.5 },
+  td: { padding: '3px 6px 3px 0', color: '#cbd5e1', whiteSpace: 'nowrap' },
+  reading: { marginTop: 4, color: '#f0abfc', fontSize: 11.5 },
+  barTrack: { display: 'inline-block', width: 34, height: 5, background: 'rgba(148,163,184,0.18)', borderRadius: 3, marginRight: 5, verticalAlign: 'middle', overflow: 'hidden' },
+  barFill: { display: 'block', height: '100%', borderRadius: 3 },
 };

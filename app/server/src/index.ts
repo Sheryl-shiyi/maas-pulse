@@ -11,6 +11,7 @@ import { startSubscriptionWatcher, getWatchedRateLimits } from './subscription-w
 import { startDeploymentWatcher, getWatchedReplicas } from './deployment-watcher.js';
 import { initAutoscaler } from './autoscaler.js';
 import { parseAutoscaleModels } from './autoscale-config.js';
+import { parseEppWeights } from './epp-weights.js';
 import { initOidc, createOidcRouter } from './oidc.js';
 import { identityGroup } from './sa-token.js';
 import type { AppConfig, ClientEvent } from './types.js';
@@ -102,6 +103,8 @@ function loadConfig(): AppConfig {
 }
 
 const config = loadConfig();
+/** llm-d's scorer weights from the chart, shown in the UI's llm-d panel. */
+const eppWeights = parseEppWeights(process.env['EPP_WEIGHTS']);
 
 const app = express();
 app.set('trust proxy', true);
@@ -112,6 +115,7 @@ app.get('/api/config', (_req, res) => {
     models: config.models,
     users: config.users.map(u => ({ name: u.name, displayName: u.displayName, rateLimit: u.rateLimit, tier: u.tier })),
     trafficRunning: isRunning(),
+    eppWeights,
   });
 });
 
@@ -178,6 +182,7 @@ setClientConnectHandler((ws) => {
     models: config.models,
     users: config.users.map(u => ({ name: u.name, displayName: u.displayName, rateLimit: u.rateLimit, tier: u.tier })),
     trafficRunning: isRunning(),
+    eppWeights,
   });
   const watched = getWatchedRateLimits();
   for (const [user, rateLimits] of watched) {

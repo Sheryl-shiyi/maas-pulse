@@ -45,7 +45,9 @@ export interface ReplicaStatus {
 export type TrafficPattern = 'concurrent' | 'sequential' | 'random_burst';
 
 export type ServerEvent =
-  | { type: 'config'; models: ModelInfo[]; users: Omit<UserInfo, 'apiKey' | 'group'>[]; trafficRunning: boolean }
+  | { type: 'config'; models: ModelInfo[]; users: Omit<UserInfo, 'apiKey' | 'group'>[]; trafficRunning: boolean;
+      /** llm-d's scorer weights, null when the chart did not pass them. */
+      eppWeights: import('./epp-weights.js').EppWeights | null }
 
   | { type: 'request_start'; requestId: string; user: string; model: string; question: string }
   /** `upstream`: the pod that served it (ip:port); `cachedTokens` of `promptTokens` came from

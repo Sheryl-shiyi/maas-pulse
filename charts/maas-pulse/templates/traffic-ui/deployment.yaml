@@ -45,6 +45,11 @@ spec:
               value: {{ .Values.trafficUI.modelDisplayNames | default "" | quote }}
             - name: MODEL_TYPES
               value: {{ .Values.trafficUI.modelTypes | default "" | quote }}
+            {{- if .Values.epp.enabled }}
+            # llm-d's scorer weights, shown in the UI's llm-d panel (one source of truth).
+            - name: EPP_WEIGHTS
+              value: {{ .Values.epp.weights | toJson | quote }}
+            {{- end }}
             - name: MODEL_REQUEST_PARAMS
               value: {{ .Values.trafficUI.modelRequestParams | default dict | toJson | quote }}
             - name: USER_NAMES
