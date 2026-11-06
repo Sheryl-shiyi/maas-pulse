@@ -8,6 +8,8 @@ import { ChargebackView } from './components/ChargebackView';
 import { OidcView } from './components/OidcView';
 import type { ServerEvent, ModelInfo, UserInfo, ModelState, UserState, ActiveRequest, FeedEntry, Stats, GatewayStage, ScaleNotice, EppWeights } from './types';
 import { ScaleNotices } from './components/ScaleNotices';
+import { TraceForm, TraceCaption } from './components/TracePanel';
+import { buildTraceSteps, type TraceResponse, type TraceStep, type TraceView } from './components/traceSteps';
 
 type ViewTab = 'traffic' | 'cost' | 'oidc';
 
@@ -50,6 +52,12 @@ export default function App() {
   const [trafficRunning, setTrafficRunning] = useState(false);
   const [scaleNotices, setScaleNotices] = useState<ScaleNotice[]>([]);
   const [eppWeights, setEppWeights] = useState<EppWeights | null>(null);
+  /** "Trace a request": the form, then the replay of one real request. */
+  const [traceFormOpen, setTraceFormOpen] = useState(false);
+  const [trace, setTrace] = useState<null | {
+    status: 'sending' | 'ready' | 'error'; header: string; steps: TraceStep[]; index: number;
+    user: string; model: string; replicaIdx: number | null; error?: string;
+  }>(null);
   const latencySamples = useRef<number[]>([]);
 
   /** The gateway stopped this request at `stage`: its dot finishes the trip to the
@@ -359,6 +367,34 @@ export default function App() {
 
   const { send, connected } = useWebSocket(handleEvent);
 
+  const startTrace = useCallback(async (user: string, model: string, question: string) => {
+    setTraceFormOpen(false);
+    const u = usersRef.current.find(x => x.name === user);
+    const m = modelsRef.current.find(x => x.name === model);
+    // llm-d's view of the replicas as the request leaves, for the replay's llm-d step.
+    const snapshot = m ? (JSON.parse(JSON.stringify(m)) as ModelState) : undefined;
+    const header = `Tracing ${u?.displayName ?? user} → ${m?.displayName ?? model}`;
+    setTrace({ status: 'sending', header, steps: [], index: 0, user, model, replicaIdx: null });
+    try {
+      const res = await fetch('/api/trace', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user, model, question }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const { steps, replicaIdx } = buildTraceSteps((await res.json()) as TraceResponse, snapshot);
+      setTrace(t => t && { ...t, status: 'ready', steps, replicaIdx, index: 0 });
+    } catch (e) {
+      setTrace(t => t && { ...t, status: 'error', error: e instanceof Error ? e.message : String(e) });
+    }
+  }, []);
+
+  const traceView: TraceView | null = trace ? {
+    user: trace.user, model: trace.model, replicaIdx: trace.replicaIdx,
+    focus: trace.status === 'ready' ? trace.steps[trace.index]?.focus ?? 'user' : 'user',
+    tone: trace.status === 'ready' ? trace.steps[trace.index]?.tone : undefined,
+    reached: trace.status === 'ready' ? trace.steps.slice(0, trace.index + 1).map(s => s.focus) : ['user'],
+  } : null;
+
   return (
     <div style={styles.app}>
       <div style={styles.tabBar}>
@@ -395,16 +431,31 @@ export default function App() {
             trafficRunning={trafficRunning}
             connected={connected}
             send={send}
+            onTrace={() => { setTrace(null); setTraceFormOpen(true); }}
           />
           <div style={styles.main}>
             <div style={styles.topologyArea}>
-              <Topology users={users} models={models} activeRequests={activeRequests} stats={stats} gatewayFlash={gatewayFlash.current} eppWeights={eppWeights} />
-              <ScaleNotices
-                notices={scaleNotices}
-                onDismiss={id => setScaleNotices(prev => prev.filter(n => n.id !== id))}
-              />
+              <Topology users={users} models={models} activeRequests={activeRequests} stats={stats} gatewayFlash={gatewayFlash.current} eppWeights={eppWeights} trace={traceView} />
+              {!trace && (
+                <ScaleNotices
+                  notices={scaleNotices}
+                  onDismiss={id => setScaleNotices(prev => prev.filter(n => n.id !== id))}
+                />
+              )}
+              {traceFormOpen && (
+                <TraceForm users={userInfos} models={modelInfos} onTrace={startTrace} onCancel={() => setTraceFormOpen(false)} />
+              )}
+
             </div>
             <div style={styles.sidebar}>
+              {trace && (
+                <TraceCaption
+                  header={trace.header} status={trace.status} steps={trace.steps} index={trace.index} error={trace.error}
+                  onBack={() => setTrace(t => t && { ...t, index: Math.max(0, t.index - 1) })}
+                  onNext={() => setTrace(t => t && { ...t, index: Math.min(t.steps.length - 1, t.index + 1) })}
+                  onClose={() => setTrace(null)}
+                />
+              )}
               <LiveFeed entries={feed} users={users} models={models} />
               <MetricsPanel stats={stats} />
             </div>

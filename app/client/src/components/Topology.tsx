@@ -1,5 +1,6 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { HelpPopover, type HelpTarget } from './TopologyHelp';
+import type { TraceView, TraceFocus } from './traceSteps';
 import type { ModelState, UserState, ActiveRequest, Stats, GatewayStage, EppWeights } from '../types';
 import { providerOf, providerLabel, drawProviderLogo } from './providerLogos';
 import { userColors } from './colors';
@@ -82,6 +83,8 @@ interface TopologyProps {
   gatewayFlash: Record<GatewayStage, number>;
   /** llm-d's scorer weights from the chart, for its panel; null if not configured. */
   eppWeights: EppWeights | null;
+  /** A request being replayed step by step; the rest of the view dims around it. */
+  trace: TraceView | null;
 }
 
 /** One subscription tier: its shared limits on top, then one compact row per user. */
@@ -110,11 +113,13 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
 }
 
-export function Topology({ users, models, activeRequests, stats, gatewayFlash, eppWeights }: TopologyProps) {
+export function Topology({ users, models, activeRequests, stats, gatewayFlash, eppWeights, trace }: TopologyProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animRef = useRef<number>(0);
-  const propsRef = useRef({ users, models, activeRequests, stats, gatewayFlash });
-  propsRef.current = { users, models, activeRequests, stats, gatewayFlash };
+  const propsRef = useRef({ users, models, activeRequests, stats, gatewayFlash, trace });
+  propsRef.current = { users, models, activeRequests, stats, gatewayFlash, trace };
+  /** The replay's dot, gliding from one step's position to the next. */
+  const traceDotRef = useRef({ key: '', from: { x: 0, y: 0 }, to: { x: 0, y: 0 }, start: 0 });
   /** Eased bar values per replica, keyed `<model>#<replicaIdx>`, so each one keeps its
    *  own animation across frames and across re-layouts. */
   const barsRef = useRef(new Map<string, { running: number; queued: number; cache: number }>());
@@ -215,7 +220,7 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
 
     function draw() {
       if (!running) return;
-      const { users, models, activeRequests, stats, gatewayFlash } = propsRef.current;
+      const { users, models, activeRequests, stats, gatewayFlash, trace } = propsRef.current;
       const cssW = canvas!.width / devicePixelRatio;
       const cssH = canvas!.height / devicePixelRatio;
       const now = performance.now();
@@ -405,8 +410,9 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
 
       for (const band of layout.bands) drawBand(ctx, band, users, models, colors);
 
-      // Draw model boxes (one per replica)
-      for (const box of boxes) {
+      // Draw model boxes (one per replica). A trace draws some of them again over the
+      // dimmed view; `again` then skips the easing step and the click regions.
+      const drawBox = (box: typeof boxes[number], again = false) => {
         const model = models[box.modelIdx]!;
         const totalBoxes = Math.max(model.replicas, model.desiredReplicas);
 
@@ -446,7 +452,7 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
           const label = totalBoxes > 1 ? `${model.displayName} #${box.replicaIdx + 1}` : model.displayName;
           drawText(ctx, label, box.x, box.y - 8, '#f1f5f9', 13, 'bold');
           const boxRect = { x: box.x - modelRectW / 2, y: box.y - modelRectH / 2, w: modelRectW, h: modelRectH };
-          regions.push({ topic: external ? 'external' : 'replica', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: boxRect });
+          if (!again) regions.push({ topic: external ? 'external' : 'replica', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: boxRect });
           if (!external) {
             // Say what is serving here. Running, queued and the hit rate have bars of
             // their own below; the KV cache, one of the two scale-up triggers, does not.
@@ -464,10 +470,12 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
           if (model.type === 'internal' && stat) {
             const key = `${model.name}#${box.replicaIdx}`;
             const eased = barsRef.current.get(key) ?? { running: 0, queued: 0, cache: 0 };
-            eased.running = approach(eased.running, stat.runningRequests);
-            eased.queued = approach(eased.queued, stat.queuedRequests);
-            eased.cache = approach(eased.cache, stat.cacheHitPercent ?? 0);
-            barsRef.current.set(key, eased);
+            if (!again) {
+              eased.running = approach(eased.running, stat.runningRequests);
+              eased.queued = approach(eased.queued, stat.queuedRequests);
+              eased.cache = approach(eased.cache, stat.cacheHitPercent ?? 0);
+              barsRef.current.set(key, eased);
+            }
 
             // Each bar carries a one-line caption: an audience cannot be expected to know
             // what two unlabelled strips under a box mean. The captions print the exact
@@ -479,7 +487,7 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
             drawCaption(ctx, barX, barY + 16, modelRectW, `In flight (of ${LOAD_BAR_SCALE})`,
               queued > 0 ? `${stat.runningRequests} + ${queued} queued` : `${stat.runningRequests} running`,
               queued > 0 ? QUEUE_COLOR : CAPTION_COLOR);
-            regions.push({ topic: 'inflight', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: { x: barX, y: barY - 2, w: modelRectW, h: 24 } });
+            if (!again) regions.push({ topic: 'inflight', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: { x: barX, y: barY - 2, w: modelRectW, h: 24 } });
             const cacheY = barY + 25;
             drawCacheBar(ctx, barX, cacheY, modelRectW, eased.cache, stat.cacheHitPercent === null);
             // "off" when this vLLM does not prefix-cache at all (Nemotron, a hybrid Mamba
@@ -488,9 +496,101 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
               stat.prefixCaching === false ? 'off'
                 : stat.cacheHitPercent === null ? 'idle' : `${stat.cacheHitPercent}%`,
               CAPTION_COLOR);
-            regions.push({ topic: 'cache', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: { x: barX, y: cacheY - 3, w: modelRectW, h: 23 } });
+            if (!again) regions.push({ topic: 'cache', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: { x: barX, y: cacheY - 3, w: modelRectW, h: 23 } });
           }
         }
+      };
+      for (const box of boxes) drawBox(box);
+
+      // "Trace a request": dim everything, then light this request's path and the part
+      // of the stack the replay is at, with a dot gliding from step to step.
+      if (trace) {
+        const userIdx = users.findIndex(u => u.name === trace.user);
+        const modelIdx = models.findIndex(m => m.name === trace.model);
+        if (userIdx >= 0 && modelIdx >= 0) {
+          const internal = isInternal(modelIdx);
+          const u = layout.userPositions[userIdx]!;
+          const userPt = { x: u.anchorX, y: u.y };
+          const modelBoxes = boxes.filter(b => b.modelIdx === modelIdx && !b.provisioning);
+          const chosen = trace.replicaIdx !== null
+            ? modelBoxes.find(b => b.replicaIdx === trace.replicaIdx)
+            : modelBoxes.length === 1 ? modelBoxes[0] : undefined;
+          const target = internal ? chosen : modelBoxes[0];
+          const reached = new Set(trace.reached);
+          const stageIdx: Partial<Record<TraceFocus, number>> = { 'gw-auth': 0, 'gw-access': 1, 'gw-limit': 2, 'gw-route': 3, 'gw-meter': 4 };
+          const stageRow = (i: number) => {
+            const top = layout.gateway.y + GATEWAY_HEADER_H + 3 + layout.stageH * i;
+            return { x: layout.gateway.x + 5, y: top + 2, w: layout.gateway.w - 10, h: layout.stageH - 4 };
+          };
+          const pointFor = (f: TraceFocus) => {
+            if (f === 'user' || f === 'answer') return userPt;
+            // The dot waits at the door of each part, never on top of its text.
+            const si = stageIdx[f];
+            if (si !== undefined) { const r = stageRow(si); return { x: layout.gateway.x, y: r.y + r.h / 2 }; }
+            if (f === 'llmd' && llmdIn) return llmdIn;
+            if ((f === 'replica' || f === 'external' || f === 'llmd') && target) return doorOf(target);
+            return { x: layout.gateway.x + layout.gateway.w / 2, y: layout.gatewayY };
+          };
+
+          ctx.fillStyle = 'rgba(3, 6, 12, 0.74)';
+          ctx.fillRect(0, 0, w, h);
+
+          if (trace.reached.some(f => f !== 'user')) drawCurve(ctx, userPt.x, userPt.y, layout.entry.x, layout.entry.y, TRACE_COLOR, 3);
+          if (internal && llmdIn && llmdOut && reached.has('llmd')) {
+            drawCurve(ctx, layout.exit.x, layout.exit.y, llmdIn.x, llmdIn.y, TRACE_COLOR, 3);
+            if (chosen) { const d = doorOf(chosen); drawCurve(ctx, llmdOut.x, llmdOut.y, d.x, d.y, TRACE_COLOR, 3); }
+          }
+          if (!internal && target && reached.has('external')) {
+            const d = doorOf(target);
+            drawCurve(ctx, layout.exit.x, layout.exit.y, d.x, d.y, TRACE_COLOR, 3);
+          }
+
+          drawGateway(ctx, layout.gateway, layout.stageH, stats, gatewayFlash, now, []);
+          const si = stageIdx[trace.focus];
+          if (si !== undefined) drawRing(ctx, stageRow(si), trace.tone ? toneColor(trace.tone) : TRACE_COLOR, 8);
+          // llm-d lights up only once the request has reached it: one refused at the gateway
+          // never gets there.
+          if (internal && llmd && reached.has('llmd')) {
+            drawLlmd(ctx, llmd, trace.focus === 'llmd');
+            if (trace.focus === 'llmd') drawRing(ctx, llmd, TRACE_COLOR, 12);
+          }
+          if (internal && reached.has('llmd')) for (const b of modelBoxes) drawBox(b, true);
+          if (!internal && target && reached.has('external')) drawBox(target, true);
+          if (target && (trace.focus === 'replica' || trace.focus === 'external' || (trace.focus === 'llmd' && chosen))) {
+            drawRing(ctx, { x: target.x - modelRectW / 2 - 5, y: target.y - modelRectH / 2 - 5, w: modelRectW + 10, h: modelRectH + 10 },
+              trace.tone ? toneColor(trace.tone) : TRACE_COLOR, 13);
+          }
+          const band = layout.bands.find(b => b.members.includes(userIdx));
+          if (band) {
+            const n = band.members.indexOf(userIdx);
+            const y = band.firstRowY + band.rowH * n;
+            const r = Math.min(9, band.rowH * 0.3);
+            drawCircle(ctx, band.x + band.pad + r, y, r, colors[userIdx]!);
+            ctx.font = font(12, 'bold');
+            ctx.fillStyle = '#fff';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(users[userIdx]!.displayName, band.x + band.pad + r * 2 + 8, y + 0.5);
+            if (trace.focus === 'user' || trace.focus === 'answer') {
+              drawRing(ctx, { x: band.x + 3, y: y - band.rowH / 2, w: band.w - 6, h: band.rowH }, TRACE_COLOR, 8);
+            }
+          }
+
+          const dot = traceDotRef.current;
+          const key = `${trace.user}|${trace.model}|${trace.reached.length}|${trace.focus}`;
+          const to = pointFor(trace.focus);
+          if (dot.key !== key) {
+            const fresh = dot.key === '' || !dot.key.startsWith(`${trace.user}|${trace.model}|`);
+            dot.from = fresh ? to : currentTracePoint(dot, now);
+            dot.to = to;
+            dot.start = now;
+            dot.key = key;
+          }
+          dot.to = to;
+          drawTraceDot(ctx, currentTracePoint(dot, now), trace.tone ? toneColor(trace.tone) : colors[userIdx]!);
+        }
+      } else {
+        traceDotRef.current.key = '';
       }
 
       ctx.restore();
@@ -525,6 +625,7 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
         style={{ width: '100%', height: '100%', display: 'block' }}
         // Explanations only on click, so the view stays clean for people who know it.
         onClick={e => {
+          if (propsRef.current.trace) return;
           const g = regionAt(e);
           setHelp(prev => (g && !(prev && prev.topic === g.topic && prev.modelIdx === g.modelIdx && prev.replicaIdx === g.replicaIdx) ? g : null));
         }}
@@ -571,6 +672,47 @@ function minHeightFor(
     + groupsUsed * (MODEL_GROUP_HEAD + 2 * MODEL_GROUP_PAD) + 8 * Math.max(boxes.length - groupsUsed, 0) + 10 * (groupsUsed + 1);
   const gateway = GATEWAY_HEADER_H + 36 * STAGES.length + 6 + 20;
   return Math.max(left, right, gateway);
+}
+
+/** The replay's light: the path walked so far and the step in focus. */
+const TRACE_COLOR = '#fbbf24';
+
+function toneColor(tone: 'blocked' | 'provider'): string {
+  return tone === 'blocked' ? BLOCKED_COLOR : PROVIDER_LIMIT_COLOR;
+}
+
+function drawRing(ctx: CanvasRenderingContext2D, r: Rect, color: string, radius: number): void {
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(r.x, r.y, r.w, r.h, radius);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2.5;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 12;
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** Where the replay's dot is now: eased from the last step's point to this one's. */
+function currentTracePoint(dot: { from: { x: number; y: number }; to: { x: number; y: number }; start: number }, now: number) {
+  const t = Math.min(1, (now - dot.start) / 700);
+  const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+  return { x: dot.from.x + (dot.to.x - dot.from.x) * e, y: dot.from.y + (dot.to.y - dot.from.y) * e };
+}
+
+function drawTraceDot(ctx: CanvasRenderingContext2D, pos: { x: number; y: number }, color: string): void {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, 10, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 20;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.restore();
 }
 
 /** llm-d's card: the inference scheduler between the gateway and our replicas. */
@@ -1060,14 +1202,14 @@ function simpleHash(str: string): number {
   return Math.abs(hash);
 }
 
-function drawCurve(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string) {
+function drawCurve(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string, width = 2) {
   const cp1x = x1 + (x2 - x1) * 0.4;
   const cp2x = x1 + (x2 - x1) * 0.6;
   ctx.beginPath();
   ctx.moveTo(x1, y1);
   ctx.bezierCurveTo(cp1x, y1, cp2x, y2, x2, y2);
   ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
+  ctx.lineWidth = width;
   ctx.stroke();
 }
 

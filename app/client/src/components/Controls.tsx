@@ -7,9 +7,11 @@ interface ControlsProps {
   trafficRunning: boolean;
   connected: boolean;
   send: (event: ClientEvent) => void;
+  /** Open "Trace a request". */
+  onTrace: () => void;
 }
 
-export function Controls({ models, users, trafficRunning, connected, send }: ControlsProps) {
+export function Controls({ models, users, trafficRunning, connected, send, onTrace }: ControlsProps) {
   const [pattern, setPattern] = useState<TrafficPattern>('concurrent');
   const [rate, setRate] = useState(3);
   const [promptShape, setPromptShape] = useState<PromptShape>('short');
@@ -115,6 +117,9 @@ export function Controls({ models, users, trafficRunning, connected, send }: Con
               Stop
             </button>
           )}
+          <button onClick={onTrace} style={styles.traceBtn} disabled={!connected}>
+            Trace a request
+          </button>
         </div>
 
       </div>
@@ -197,6 +202,7 @@ const styles: Record<string, React.CSSProperties> = {
   select: { background: '#1e293b', color: '#e0e0e0', border: '1px solid #334155', borderRadius: 4, padding: '4px 8px', fontSize: 13 },
   slider: { width: 100 },
   startBtn: { background: '#4caf50', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer' },
+  traceBtn: { background: 'transparent', color: '#fbbf24', border: '1px solid #fbbf24', borderRadius: 4, padding: '6px 14px', fontSize: 14, fontWeight: 600, cursor: 'pointer' },
   stopBtn: { background: '#f44336', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer' },
   hint: { display: 'flex', columnGap: 24, rowGap: 2, flexWrap: 'wrap', fontSize: 11, color: '#94a3b8', margin: '-2px 0 8px' },
   hintKey: { color: '#cbd5e1', fontWeight: 600 },

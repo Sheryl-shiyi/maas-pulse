@@ -3,7 +3,7 @@ import { createServer } from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { initWebSocket, broadcast, setClientMessageHandler, setClientConnectHandler, sendTo } from './ws.js';
-import { initMaasClients } from './maas-client.js';
+import { initMaasClients, sendInference } from './maas-client.js';
 import { initPrometheus, startPolling, stopPolling } from './prometheus.js';
 import { startTraffic, stopTraffic, isRunning } from './traffic.js';
 import { initChargeback, getChargebackData, updateModelRate } from './chargeback.js';
@@ -12,6 +12,8 @@ import { startDeploymentWatcher, getWatchedReplicas } from './deployment-watcher
 import { initAutoscaler } from './autoscaler.js';
 import { parseAutoscaleModels } from './autoscale-config.js';
 import { parseEppWeights } from './epp-weights.js';
+import { describeAuth, limitFor, cleanQuestion } from './trace.js';
+import { getRandomQuestion } from './questions.js';
 import { initOidc, createOidcRouter } from './oidc.js';
 import { identityGroup } from './sa-token.js';
 import type { AppConfig, ClientEvent } from './types.js';
@@ -116,6 +118,42 @@ app.get('/api/config', (_req, res) => {
     users: config.users.map(u => ({ name: u.name, displayName: u.displayName, rateLimit: u.rateLimit, tier: u.tier })),
     trafficRunning: isRunning(),
     eppWeights,
+  });
+});
+
+/**
+ * Trace one request: send it for real, as the chosen user to the chosen model, and return
+ * what the UI needs to replay its trip. It is not broadcast as traffic, so it does not
+ * draw a second dot over the replay; it still counts against the user's limit and is
+ * metered like any other request.
+ */
+app.post('/api/trace', async (req, res) => {
+  const user = config.users.find(u => u.name === req.body?.user);
+  const model = config.models.find(m => m.name === req.body?.model);
+  if (!user || !model) {
+    res.status(400).json({ error: 'unknown user or model' });
+    return;
+  }
+  const question = cleanQuestion(req.body?.question, getRandomQuestion);
+  const result = await sendInference(user.name, model.name, question);
+  res.json({
+    user: { name: user.name, displayName: user.displayName, tier: user.tier ?? null, ...describeAuth(user) },
+    model: { name: model.name, displayName: model.displayName, type: model.type },
+    question,
+    limit: limitFor(getWatchedRateLimits().get(user.name), model.name) ?? null,
+    result: {
+      ok: !result.rateLimited && !result.error,
+      status: result.rateLimited ? 429 : result.error ? (result.status ?? null) : 200,
+      limitedBy: result.limitedBy ?? null,
+      message: result.providerMessage ?? result.error ?? null,
+      upstream: result.upstream ?? null,
+      promptTokens: result.promptTokens ?? null,
+      cachedTokens: result.cachedTokens ?? null,
+      completionTokens: result.completionTokens ?? null,
+      totalTokens: result.tokensUsed || null,
+      latencyMs: result.latencyMs,
+      answer: result.answer || null,
+    },
   });
 });
 
