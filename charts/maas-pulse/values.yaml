@@ -131,6 +131,11 @@ monitoring:
 # NAT gateway drops a flow idle for 350s; without probes, a pooled connection died there
 # and the next request on it got a 503. `time` must stay well below 350. Applied as an
 # EnvoyFilter (templates/envoyfilter-external-keepalive.yaml). Set to null to disable.
+# Add `x-maas-upstream: <ip:port>` to every gateway response: the vLLM pod that served an
+# internal request, so the traffic UI can show llm-d's routing per request.
+upstreamHeader:
+  enabled: true
+
 externalProviderKeepalive:
   time: 60
   interval: 30
@@ -219,6 +224,9 @@ models:
       - --enable-force-include-usage
       - --reasoning-parser-plugin=/mnt/models/nano_v3_reasoning_parser.py
       - --reasoning-parser=nano_v3
+      # Report usage.prompt_tokens_details.cached_tokens in each response: how much of
+      # the prompt came from the prefix cache, per request, for the traffic UI.
+      - --enable-prompt-tokens-details
       # Hybrid prefix caching (vLLM 0.26, PR #46384): save Mamba state at aligned
       # scheduler-step ends, and allow hits every 16 tokens (must divide the block size).
       - --enable-prefix-caching
@@ -251,6 +259,9 @@ models:
       - --max-model-len=40960
       - --enable-auto-tool-choice
       - --tool-call-parser=hermes
+      # Report usage.prompt_tokens_details.cached_tokens in each response: how much of
+      # the prompt came from the prefix cache, per request, for the traffic UI.
+      - --enable-prompt-tokens-details
       - --trust-remote-code
       - --enable-force-include-usage
     nodeSelector:

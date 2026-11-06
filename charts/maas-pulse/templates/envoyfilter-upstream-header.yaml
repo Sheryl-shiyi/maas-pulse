@@ -1,0 +1,38 @@
+{{- if .Values.upstreamHeader.enabled }}
+{{/*
+Tell the client which backend served each response: `x-maas-upstream: <ip:port>`.
+
+For internal models that is the vLLM pod llm-d's endpoint picker chose, which nothing
+else reports: the gateway access log has it, but responses do not. The traffic UI reads
+it to send each request's dot to the replica that really served it, and to show llm-d's
+decisions request by request. vLLM's own metrics carry the same address as their
+`instance` label, so the UI can map it to a replica without asking Kubernetes.
+
+For external models it is the provider's address, which the UI ignores. The header only
+names a pod IP inside the cluster; drop it (upstreamHeader.enabled=false) where that
+matters more than the demo.
+*/}}
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: maas-pulse-upstream-header
+  namespace: openshift-ingress
+  labels:
+    {{- include "maas-pulse.labels" . | nindent 4 }}
+spec:
+  workloadSelector:
+    labels:
+      gateway.networking.k8s.io/gateway-name: maas-default-gateway
+  configPatches:
+  - applyTo: VIRTUAL_HOST
+    match:
+      context: GATEWAY
+    patch:
+      operation: MERGE
+      value:
+        response_headers_to_add:
+        - header:
+            key: x-maas-upstream
+            value: "%UPSTREAM_REMOTE_ADDRESS%"
+          append_action: OVERWRITE_IF_EXISTS_OR_ADD
+{{- end }}
