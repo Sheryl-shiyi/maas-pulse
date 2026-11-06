@@ -103,6 +103,10 @@ interface Band {
 interface Rect { x: number; y: number; w: number; h: number }
 
 const GATEWAY_HEADER_H = 36;
+/** Space above the model column for the cluster boundary's label. */
+const BOUNDARY_TOP = 30;
+const BOUNDARY_PAD = 14;
+
 /** Height a model box needs below it for the load and cache bars. */
 const BARS_H = 50;
 /** The model column's group frames: two-line header, then padding around the boxes. */
@@ -257,15 +261,17 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
       const boxH = (b: typeof boxes[number]) =>
         modelRectH + (models[b.modelIdx]!.type === 'internal' && !b.provisioning ? BARS_H : 0);
       const groups = [
-        { label: 'ON OUR CLUSTER', note: 'AI Inference on OpenShift AI', external: false, members: boxes.filter(b => models[b.modelIdx]!.type === 'internal') },
-        { label: 'EXTERNAL PROVIDERS', note: 'via the MaaS gateway', external: true, members: boxes.filter(b => models[b.modelIdx]!.type !== 'internal') },
+        { label: 'SELF-HOSTED MODELS', note: 'AI Inference on OpenShift AI', external: false, members: boxes.filter(b => models[b.modelIdx]!.type === 'internal') },
+        { label: 'CLOUD-HOSTED APIs', note: 'via the MaaS gateway', external: true, members: boxes.filter(b => models[b.modelIdx]!.type !== 'internal') },
       ].filter(g => g.members.length > 0);
       const contentH = boxes.reduce((a, b) => a + boxH(b), 0) + groups.length * (MODEL_GROUP_HEAD + 2 * MODEL_GROUP_PAD);
       const innerGaps = groups.reduce((a, g) => a + g.members.length - 1, 0);
-      const spare = Math.max(0, h - contentH);
+      // Room at the top for the cluster boundary's label and margin.
+      const spare = Math.max(0, h - contentH - BOUNDARY_TOP);
       const inner = innerGaps > 0 ? Math.min(28, (spare * 0.5) / innerGaps) : 0;
       const outer = (spare - inner * innerGaps) / (groups.length + 1);
-      let cursor = outer;
+      let cursor = BOUNDARY_TOP + outer;
+      const frames: { x: number; y: number; w: number; h: number; label: string; note: string; external: boolean }[] = [];
       const frameX = layout.modelX - modelRectW / 2 - 10;
       const frameW = modelRectW + 20;
       for (const g of groups) {
@@ -278,9 +284,18 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
         });
         cursor += MODEL_GROUP_PAD;
         const left = !g.external && layout.llmd ? layout.clusterLeft : frameX;
-        drawModelGroup(ctx, left, top, frameX + frameW - left, cursor - top, g.label, g.note, g.external);
+        frames.push({ x: left, y: top, w: frameX + frameW - left, h: cursor - top, label: g.label, note: g.note, external: g.external });
         cursor += outer;
       }
+
+      // The cluster boundary: around the gateway and our self-hosted models, with the
+      // cloud-hosted APIs left outside. Prompts to our models never leave it; prompts to
+      // an external API cross it, and a marker says so where they do.
+      const selfFrame = frames.find(f => !f.external);
+      const cloudFrame = frames.find(f => f.external);
+      const boundary = clusterBoundary(layout.gateway, selfFrame, cloudFrame);
+      drawBoundary(ctx, boundary);
+      for (const f of frames) drawModelGroup(ctx, f.x, f.y, f.w, f.h, f.label, f.note, f.external);
 
       // llm-d: vertically centred on the replicas it chooses between.
       const internalBoxes = boxes.filter(b => models[b.modelIdx]!.type === 'internal');
@@ -306,6 +321,15 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
         const door = doorOf(box);
         drawCurve(ctx, from.x, from.y, door.x, door.y, box.provisioning ? '#1e293b' : EDGE_COLOR);
       }
+      // Where the lines to the cloud-hosted APIs cross the boundary.
+      const crossings = boxes.filter(b => !isInternal(b.modelIdx))
+        .map(b => { const d = doorOf(b); return firstExit(boundary, layout.exit, d); })
+        .filter((p): p is { x: number; y: number } => p !== null);
+      // Lit while a request to an external model is on its way across.
+      const leaving = activeRequests.some(r => {
+        const mi = models.findIndex(m => m.name === r.model);
+        return mi >= 0 && !isInternal(mi) && r.phase === 'to_model' && !r.rejectedAt && now - r.startTime < SEGMENT_MS * 0.9;
+      });
 
       // Particles. A request the gateway turned away finishes its trip to the gateway,
       // then bounces back in red; it is drawn after the gateway so the bounce shows.
@@ -400,6 +424,7 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
         for (const id of routedRef.current.keys()) if (!live.has(id)) routedRef.current.delete(id);
       }
 
+      drawLeavesMarker(ctx, crossings, leaving);
       drawGateway(ctx, layout.gateway, layout.stageH, stats, gatewayFlash, now, regions);
       if (llmd) {
         // Glows briefly each time the gateway routes a request onward.
@@ -543,6 +568,8 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
           if (!internal && target && reached.has('external')) {
             const d = doorOf(target);
             drawCurve(ctx, layout.exit.x, layout.exit.y, d.x, d.y, TRACE_COLOR, 3);
+            const cross = firstExit(boundary, layout.exit, d);
+            if (cross) drawLeavesMarker(ctx, [cross], true);
           }
 
           drawGateway(ctx, layout.gateway, layout.stageH, stats, gatewayFlash, now, []);
@@ -669,7 +696,7 @@ function minHeightFor(
   const left = tiers * (5 * 2 + 15 + limitRows * 13 + 4) + 6 * Math.max(tiers - 1, 0) + users.length * 18 + 16;
   const groupsUsed = new Set(boxes.map(b => models[b.modelIdx]!.type === 'internal')).size;
   const right = boxes.reduce((a, b) => a + modelRectH + (models[b.modelIdx]!.type === 'internal' && !b.provisioning ? BARS_H : 0), 0)
-    + groupsUsed * (MODEL_GROUP_HEAD + 2 * MODEL_GROUP_PAD) + 8 * Math.max(boxes.length - groupsUsed, 0) + 10 * (groupsUsed + 1);
+    + groupsUsed * (MODEL_GROUP_HEAD + 2 * MODEL_GROUP_PAD) + 8 * Math.max(boxes.length - groupsUsed, 0) + 10 * (groupsUsed + 1) + BOUNDARY_TOP;
   const gateway = GATEWAY_HEADER_H + 36 * STAGES.length + 6 + 20;
   return Math.max(left, right, gateway);
 }
@@ -720,6 +747,114 @@ function drawLlmd(ctx: CanvasRenderingContext2D, r: Rect, active: boolean): void
   drawCard(ctx, r.x, r.y, r.w, r.h, LLMD_COLOR, active);
   drawText(ctx, 'llm-d', r.x + r.w / 2, r.y + r.h / 2 - 8, '#f1f5f9', 14, 'bold');
   drawText(ctx, 'inference scheduler', r.x + r.w / 2, r.y + r.h / 2 + 11, '#f0abfc', 9);
+}
+
+type Pt = { x: number; y: number };
+
+/**
+ * The cluster boundary as a polygon: a rectangle around the gateway and the self-hosted
+ * group, with a notch cut out where the cloud-hosted group sits below and to the right,
+ * so that group stays outside.
+ */
+function clusterBoundary(g: Rect, self: Rect | undefined, cloud: Rect | undefined): Pt[] {
+  const P = BOUNDARY_PAD;
+  const top = Math.min(g.y, self ? self.y : g.y) - P - (self ? 0 : 26);
+  const left = g.x - P;
+  const right = self ? self.x + self.w + P : g.x + g.w + P;
+  const selfBottom = self ? self.y + self.h + P : g.y + g.h + P;
+  const gwBottom = g.y + g.h + P;
+  const labelTop = Math.min(top, g.y - 44);
+  if (cloud && gwBottom > cloud.y - P / 2 && cloud.x - P / 2 > g.x + g.w + P) {
+    const notchX = cloud.x - P * 0.75;
+    const notchY = Math.min(selfBottom, cloud.y - P * 0.75);
+    return [
+      { x: left, y: labelTop }, { x: right, y: labelTop }, { x: right, y: notchY },
+      { x: notchX, y: notchY }, { x: notchX, y: gwBottom }, { x: left, y: gwBottom },
+    ];
+  }
+  return [
+    { x: left, y: labelTop }, { x: right, y: labelTop },
+    { x: right, y: Math.max(selfBottom, gwBottom) }, { x: left, y: Math.max(selfBottom, gwBottom) },
+  ];
+}
+
+function drawBoundary(ctx: CanvasRenderingContext2D, poly: Pt[]): void {
+  if (poly.length < 3) return;
+  ctx.save();
+  ctx.beginPath();
+  poly.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.025)';
+  ctx.fill();
+  ctx.setLineDash([8, 6]);
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.55)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.setLineDash([]);
+  const corner = poly[0]!;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.font = font(10, 'bold', 'system-ui, sans-serif');
+  ctx.fillStyle = '#cbd5e1';
+  ctx.fillText('YOUR OPENSHIFT CLUSTER', corner.x + 12, corner.y + 13);
+  ctx.font = font(9, '', 'system-ui, sans-serif');
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('prompts and data stay inside', corner.x + 12, corner.y + 27);
+  ctx.restore();
+}
+
+function insidePolygon(poly: Pt[], p: Pt): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i]!, b = poly[j]!;
+    if ((a.y > p.y) !== (b.y > p.y) && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+/** Where the curve from `from` to `to` (drawn by drawCurve) first leaves the polygon. */
+function firstExit(poly: Pt[], from: Pt, to: Pt): Pt | null {
+  if (poly.length < 3 || !insidePolygon(poly, from)) return null;
+  for (let i = 1; i <= 80; i++) {
+    const p = getCurvePoint(from.x, from.y, to.x, to.y, i / 80);
+    if (!insidePolygon(poly, p)) return p;
+  }
+  return null;
+}
+
+/** "prompt leaves your network", where the lines to cloud-hosted APIs cross the boundary. */
+function drawLeavesMarker(ctx: CanvasRenderingContext2D, points: Pt[], lit: boolean): void {
+  if (points.length === 0) return;
+  ctx.save();
+  for (const p of points) {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, lit ? 5 : 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = lit ? '#c7d2fe' : '#818cf8';
+    if (lit) { ctx.shadowColor = '#818cf8'; ctx.shadowBlur = 14; }
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+  const anchor = points.reduce((a, p) => (p.y < a.y ? p : a), points[0]!);
+  const text = 'prompt leaves your network';
+  ctx.font = font(9, 'bold');
+  const tw = ctx.measureText(text).width;
+  const w = tw + 16, h = 18;
+  const x = anchor.x - w - 10, y = anchor.y - h - 6;
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, h / 2);
+  ctx.fillStyle = CARD_FILL;
+  if (lit) { ctx.shadowColor = '#818cf8'; ctx.shadowBlur = 16; }
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = lit ? '#a5b4fc' : 'rgba(129, 140, 248, 0.6)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.fillStyle = lit ? '#e0e7ff' : '#a5b4fc';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, x + w / 2, y + h / 2 + 0.5);
+  ctx.restore();
 }
 
 /** One of the model column's two groups, styled like the tier bands on the left. */
