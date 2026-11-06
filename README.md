@@ -510,6 +510,24 @@ oc delete namespace llm
 
 ## Running the demo
 
+**The quickest way is the scene buttons** under the traffic controls. Each one stops any
+running traffic, sets users, models, prompt shape and rate, starts again, and puts a short
+"What to watch" card at the top of the sidebar. They follow the talk top-down:
+
+1. **Tiers and token limits**: every user on the self-hosted models; within half a minute
+   the Free tier is throttled while Pro and Max carry on.
+2. **vLLM: one GPU, many requests**: Pro and Max on Qwen3, short prompts; dozens in flight
+   on one GPU and nothing queued.
+3. **Autoscaling under real load**: Max on Qwen3 with long unique prompts; a queue builds,
+   the autoscaler adds a replica and says why. Keep it running until #2 takes its share.
+4. **llm-d: cache-aware routing**: Max on Qwen3 with a shared document; traffic sticks to the
+   warm replica. Needs the second replica from scene 3.
+5. **Cloud-hosted APIs and privacy**: Pro and Max on Gemini, GPT and Qwen3; same gateway and
+   rules, but these prompts leave the cluster. Uses the paid keys: stop it when done.
+
+Finish with **Trace a request**. The segments below give the settings and measurements
+behind scenes 1 and 3.
+
 Governance and elasticity need opposite request sizes and cannot be shown well in the
 same run. Do them as two segments — which also tells a cleaner story: first who is
 allowed how much, then what happens when that is not enough.

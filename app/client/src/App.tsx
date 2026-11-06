@@ -9,6 +9,8 @@ import { OidcView } from './components/OidcView';
 import type { ServerEvent, ModelInfo, UserInfo, ModelState, UserState, ActiveRequest, FeedEntry, Stats, GatewayStage, ScaleNotice, EppWeights } from './types';
 import { ScaleNotices } from './components/ScaleNotices';
 import { TraceForm, TraceCaption } from './components/TracePanel';
+import { SceneCard } from './components/SceneCard';
+import { SCENES } from './components/scenes';
 import { buildTraceSteps, type TraceResponse, type TraceStep, type TraceView } from './components/traceSteps';
 
 type ViewTab = 'traffic' | 'cost' | 'oidc';
@@ -54,6 +56,8 @@ export default function App() {
   const [eppWeights, setEppWeights] = useState<EppWeights | null>(null);
   /** "Trace a request": the form, then the replay of one real request. */
   const [traceFormOpen, setTraceFormOpen] = useState(false);
+  /** The demo scene in progress, by index in SCENES. */
+  const [activeScene, setActiveScene] = useState<number | null>(null);
   const [trace, setTrace] = useState<null | {
     status: 'sending' | 'ready' | 'error'; header: string; steps: TraceStep[]; index: number;
     user: string; model: string; replicaIdx: number | null; error?: string;
@@ -432,6 +436,8 @@ export default function App() {
             connected={connected}
             send={send}
             onTrace={() => { setTrace(null); setTraceFormOpen(true); }}
+            onScene={i => setActiveScene(i)}
+            activeScene={activeScene}
           />
           <div style={styles.main}>
             <div style={styles.topologyArea}>
@@ -454,6 +460,14 @@ export default function App() {
                   onBack={() => setTrace(t => t && { ...t, index: Math.max(0, t.index - 1) })}
                   onNext={() => setTrace(t => t && { ...t, index: Math.min(t.steps.length - 1, t.index + 1) })}
                   onClose={() => setTrace(null)}
+                />
+              )}
+              {!trace && activeScene !== null && SCENES[activeScene] && (
+                <SceneCard
+                  scene={SCENES[activeScene]!} index={activeScene} total={SCENES.length}
+                  trafficRunning={trafficRunning}
+                  onStop={() => send({ type: 'stop_traffic' })}
+                  onClose={() => setActiveScene(null)}
                 />
               )}
               <LiveFeed entries={feed} users={users} models={models} />

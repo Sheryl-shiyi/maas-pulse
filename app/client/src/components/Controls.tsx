@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { TrafficPattern, PromptShape, ModelInfo, UserInfo, ClientEvent } from '../types';
+import { SCENES, type Scene } from './scenes';
 
 interface ControlsProps {
   models: ModelInfo[];
@@ -9,9 +10,12 @@ interface ControlsProps {
   send: (event: ClientEvent) => void;
   /** Open "Trace a request". */
   onTrace: () => void;
+  /** A scene was started (its index in SCENES). */
+  onScene: (index: number) => void;
+  activeScene: number | null;
 }
 
-export function Controls({ models, users, trafficRunning, connected, send, onTrace }: ControlsProps) {
+export function Controls({ models, users, trafficRunning, connected, send, onTrace, onScene, activeScene }: ControlsProps) {
   const [pattern, setPattern] = useState<TrafficPattern>('concurrent');
   const [rate, setRate] = useState(3);
   const [promptShape, setPromptShape] = useState<PromptShape>('short');
@@ -43,6 +47,24 @@ export function Controls({ models, users, trafficRunning, connected, send, onTra
 
   const handleStop = () => {
     send({ type: 'stop_traffic' });
+  };
+
+  /** Set every control to the scene's values, so the hint line and chips match, and run it. */
+  const startScene = (scene: Scene, index: number) => {
+    const u = users.filter(scene.users).map(x => x.name);
+    const m = models.filter(scene.models).map(x => x.name);
+    setPattern(scene.pattern);
+    setPromptShape(scene.promptShape);
+    setRate(scene.rate);
+    setSelectedUsers(u);
+    setSelectedModels(m);
+    onScene(index);
+    const start = () => send({
+      type: 'start_traffic', pattern: scene.pattern, usersEnabled: u, modelsEnabled: m,
+      ratePerSecond: scene.rate, promptShape: scene.promptShape,
+    });
+    // The generator ignores a start while it is running, so stop first.
+    if (trafficRunning) { send({ type: 'stop_traffic' }); setTimeout(start, 500); } else start();
   };
 
   const toggleUser = (name: string) => {
@@ -122,6 +144,21 @@ export function Controls({ models, users, trafficRunning, connected, send, onTra
           </button>
         </div>
 
+      </div>
+
+      <div style={styles.scenes}>
+        <span style={styles.chipLabel}>Scenes:</span>
+        {SCENES.map((sc, i) => (
+          <button
+            key={sc.id}
+            onClick={() => startScene(sc, i)}
+            disabled={!connected}
+            style={{ ...styles.scene, ...(activeScene === i ? styles.sceneActive : {}) }}
+            title={sc.watch.join('\n')}
+          >
+            {i + 1} · {sc.title}
+          </button>
+        ))}
       </div>
 
       {/* What the current choices will actually send, in words an audience can follow.
@@ -204,6 +241,9 @@ const styles: Record<string, React.CSSProperties> = {
   startBtn: { background: '#4caf50', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer' },
   traceBtn: { background: 'transparent', color: '#fbbf24', border: '1px solid #fbbf24', borderRadius: 4, padding: '6px 14px', fontSize: 14, fontWeight: 600, cursor: 'pointer' },
   stopBtn: { background: '#f44336', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer' },
+  scenes: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', margin: '0 0 8px' },
+  scene: { background: 'transparent', color: '#7dd3fc', border: '1px solid rgba(56,189,248,0.5)', borderRadius: 14, padding: '3px 11px', fontSize: 12, cursor: 'pointer' },
+  sceneActive: { background: '#0c4a6e', color: '#e0f2fe', borderColor: '#38bdf8' },
   hint: { display: 'flex', columnGap: 24, rowGap: 2, flexWrap: 'wrap', fontSize: 11, color: '#94a3b8', margin: '-2px 0 8px' },
   hintKey: { color: '#cbd5e1', fontWeight: 600 },
   chips: { display: 'flex', alignItems: 'center', gap: 6 },
