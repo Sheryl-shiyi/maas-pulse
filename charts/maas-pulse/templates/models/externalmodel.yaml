@@ -12,7 +12,8 @@ metadata:
     inference.llm-d.ai/ipp-managed: "true"
 type: Opaque
 data:
-  api-key: {{ .apiKey | default "CHANGEME" | b64enc }}
+  {{- /* externalModelKeys (by model name) first: a --set on one list entry would replace the whole list. */}}
+  api-key: {{ get ($.Values.externalModelKeys | default dict) .name | default .apiKey | default "CHANGEME" | b64enc }}
 ---
 apiVersion: inference.opendatahub.io/v1alpha1
 kind: ExternalProvider

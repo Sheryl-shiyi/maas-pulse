@@ -481,6 +481,12 @@ autoscaling:
       minReplicas: 1
       maxReplicas: 2
 
+# Provider API keys, by external model name. Kept apart from the list below because a
+# `--set externalModels[0].apiKey=...` replaces the whole list with a one-field entry and
+# deploys no external model at all. all-in-one.sh writes these into a temporary values file.
+# A per-entry `apiKey` in the list still works and is used when no key is given here.
+externalModelKeys: {}
+
 externalModels:
   - name: gemini-3.1-flash-lite
     provider: openai

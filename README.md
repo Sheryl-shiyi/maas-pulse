@@ -380,7 +380,26 @@ Before deploying, ensure you have:
 - `oc` CLI installed and authenticated as cluster admin (`oc whoami` should return an admin user)
 - `helm` CLI (3.12+) installed
 - A default StorageClass configured on the cluster
-- (Optional) A Google Gemini API key and/or OpenAI API key for external models
+- **GPU nodes ready**, which this repository does not set up:
+  - Node Feature Discovery and the NVIDIA GPU Operator installed, and the GPU nodes reporting
+    `nvidia.com/gpu`.
+  - One L40S and two A10G machines, from MachineSets that carry the `nvidia.com/gpu:NoSchedule`
+    taint in their template. Create them with `docs/reference/gpu-machinesets.yaml` (it explains
+    how to clone the installer's worker MachineSet) and keep their names: the `gpu-session`
+    skill scales them by name.
+- (Optional) A Google Gemini API key and/or an OpenAI API key for the two external models
+
+**More than one cluster on the same laptop?** `oc login` switches the one current context in
+`~/.kube/config` for every terminal and tool. Give each cluster its own file instead, and run
+every command against it:
+
+```bash
+KUBECONFIG=~/.kube/<cluster>.kubeconfig oc login --token=... --server=https://api.<cluster>:6443
+KUBECONFIG=~/.kube/<cluster>.kubeconfig ./all-in-one.sh
+```
+
+`.env`, `environment.yaml` and `user_keys.json` are per cluster too: use a separate working copy
+(for example `git worktree add ../maas-pulse-<cluster>`) for each one.
 
 ### Installation
 
@@ -396,11 +415,44 @@ cd maas-pulse
 
 The script will:
 1. Detect your cluster's ingress domain and certificate configuration
-2. Prompt for admin and user passwords (stored in `.env`, gitignored)
-3. Prompt for an optional Google Gemini API key (if provided, deploys the external model; if skipped, only internal models are deployed)
-4. Install all dependency operators and wait for RHOAI to be ready
-5. Deploy the maas-pulse chart with Keycloak, monitoring, and models
-6. Wire the traffic UI's per-user MaaS API keys, if it finds them in `user_keys.json` or in `USER_API_KEYS` in `.env` (both gitignored)
+2. Prompt for admin and user passwords, and for optional Gemini and OpenAI API keys (all stored
+   in `.env`, gitignored). With no keys, only the internal models are deployed.
+3. Install the dependency operators and wait for RHOAI to be ready. Operators that are already
+   installed are left alone, and so is an existing DataScienceCluster (see below).
+4. Deploy the maas-pulse chart with Keycloak, monitoring, the models and the traffic UI. API
+   keys go into a temporary values file, never onto the command line.
+5. Give the traffic UI admin's MaaS API key, from `ADMIN_API_KEY` in `.env` or the `admin`
+   entry of `user_keys.json` (both gitignored). The nine tier users need no keys: they are
+   ServiceAccounts, and the UI mints their tokens itself.
+
+The script prompts only for what is missing from `.env`, so it can run unattended with a
+complete `.env`:
+
+```bash
+ADMIN_PASSWORD="..."         # Keycloak admin (sso realm)
+USER_PASSWORD="..."          # Keycloak user1..user5
+REMOVE_KUBE_ADMIN="false"
+GEMINI_API_KEY="..."         # optional
+OPENAI_API_KEY="..."         # optional
+ADMIN_API_KEY="..."          # optional on the first run, see "After installing"
+```
+
+**OpenShift AI already installed?** That works: existing operator Subscriptions and the
+existing DataScienceCluster are kept. Before the main chart, the script checks what it kept:
+it stops if Red Hat Connectivity Link is older than 1.4.4 (earlier versions hold gateway
+responses open; move its Subscription to channel `stable-1.4` and approve the upgrade), and
+warns if OpenShift AI is older than 3.5.2 or Models-as-a-Service is not enabled in the
+DataScienceCluster. Also set `AUTH_SERVICE_TIMEOUT=2s` in the RHCL Subscription's
+`spec.config.env` (the chart does this only when it installs RHCL itself).
+
+**After installing:**
+1. Create admin's MaaS API key: sign in to the OpenShift AI dashboard as `admin` (Keycloak
+   `sso` realm), create a key in Gen AI Studio, add `ADMIN_API_KEY="..."` to `.env`, and run
+   `./all-in-one.sh` again. Until then admin's requests are refused with 401. Keys belong to
+   one cluster: a new cluster needs a new key.
+2. Scale the GPU MachineSets up (the `gpu-session` skill, or `oc scale machineset`), and wait
+   for both models to be Ready (about 20 minutes from zero).
+3. Run `./scripts/verify-deployment.sh --skip-paid`.
 
 **Option B: Step-by-step with Helm**
 
@@ -421,20 +473,22 @@ helm upgrade --install maas-pulse charts/maas-pulse \
   --set keycloak.realm.user.password="YOUR_USER_PASSWORD"
 ```
 
-To include external models with real API keys:
-```bash
-  --set externalModels[0].apiKey="YOUR_GEMINI_API_KEY" \
-  --set externalModels[1].apiKey="YOUR_OPENAI_API_KEY"
+API keys go in a values file of their own (keep it out of git, and delete it afterwards),
+passed with one more `-f`:
+```yaml
+externalModelKeys:            # by external model name
+  "gemini-3.1-flash-lite": "YOUR_GEMINI_API_KEY"
+  "gpt-5.4-nano": "YOUR_OPENAI_API_KEY"
+trafficUI:
+  # One entry per trafficUI.userNames: admin's MaaS API key, then nine empty entries
+  # for the tier users (ServiceAccounts, whose tokens the UI mints itself).
+  apiKeys: "sk-oai-ADMIN,,,,,,,,,"
 ```
+Do not use `--set externalModels[0].apiKey=...`: a `--set` on one list entry replaces the
+whole list, and no external model is deployed at all.
 
-To deploy the traffic UI with per-user MaaS API keys (issued from Gen AI Studio), pass
-them in the same order as `trafficUI.userNames`, escaping the separating commas:
-```bash
-  --set trafficUI.enabled=true \
-  --set-string trafficUI.apiKeys="sk-oai-admin\,sk-oai-user1\,sk-oai-user2"
-```
-The chart creates the `maas-pulse-ui-apikeys` Secret from this value, so no secret has to
-be created by hand. If you would rather manage that Secret yourself, leave
+The chart creates the `maas-pulse-ui-apikeys` Secret from `trafficUI.apiKeys`, so no secret
+has to be created by hand. If you would rather manage that Secret yourself, leave
 `trafficUI.apiKeys` empty and point `trafficUI.apiKeysSecret` at it instead.
 
 Prometheus access needs no secret at all: the UI queries Thanos with the service account

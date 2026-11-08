@@ -7,3 +7,9 @@ kuadrant:
 trafficUI:
   enabled: true
   apiKeysSecret: maas-pulse-ui-apikeys
+# The live demo's autoscaling scene (the BFF adds a Qwen3 replica under pressure) and its
+# OIDC tab (Keycloak `maas` realm). Both were switched on by hand before 2026-11-08.
+autoscaling:
+  enabled: true
+oidc:
+  enabled: true

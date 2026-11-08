@@ -30,9 +30,16 @@ if [ -z "$GEMINI_API_KEY" ]; then
   fi
 fi
 export GEMINI_API_KEY
+if [ -z "$OPENAI_API_KEY" ]; then
+  read -rp 'Enter an OpenAI API key to deploy the GPT external model (optional, press Enter to skip): ' OPENAI_API_KEY
+  if [ -n "$OPENAI_API_KEY" ]; then
+    echo "OPENAI_API_KEY=\"$OPENAI_API_KEY\"" >> .env
+  fi
+fi
+export OPENAI_API_KEY
 if [ -z "$REMOVE_KUBE_ADMIN" ]; then
   read -rn 1 -p 'Do you want to remove the kubeadmin user, if it exists? [y/N]: ' answer
-  if [ "${answer,,}" = "y" ]; then
+  if [ "$answer" = "y" ] || [ "$answer" = "Y" ]; then
     echo "Removing kubeadmin while stitching up keycloak..." >&2
     REMOVE_KUBE_ADMIN=true
   else
@@ -139,7 +146,34 @@ if ! $processed; then
   for operator in $(oc get subscriptions -A -ojsonpath='{range .items[*]}{.spec.name}{"\n"}{end}' 2>/dev/null); do
     sed '/^[[:space:]]*'"$operator"':$/{n; s/enabled: true/enabled: false/;}' environment.yaml > environment.yaml.tmp && mv environment.yaml.tmp environment.yaml
   done
+  # OpenShift AI installed beforehand: keep its DataScienceCluster (a cluster has only one).
+  if [ -n "$(oc get datasciencecluster -o name 2>/dev/null)" ]; then
+    printf '\ndataScienceCluster:\n  create: false\n' >> environment.yaml
+  fi
   sed 's/^\([[:space:]]*processed:\) false/\1 true/' environment.yaml > environment.yaml.tmp && mv environment.yaml.tmp environment.yaml
+fi
+
+# Operators that were already installed are left alone above, so check that their versions
+# are ones the demo works on (README, "Minimum software requirements").
+function installed_version {
+  oc get subscriptions.operators.coreos.com -A \
+    -ojsonpath="{range .items[?(@.spec.name==\"$1\")]}{.status.installedCSV}{end}" 2>/dev/null \
+    | sed 's/^[^.]*\.//; s/^v//'
+}
+function version_lt {
+  [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" = "$1" ]
+}
+RHCL_VERSION=$(installed_version rhcl-operator)
+if [ -n "$RHCL_VERSION" ] && version_lt "$RHCL_VERSION" 1.4.4; then
+  echo "ERROR: Red Hat Connectivity Link $RHCL_VERSION is installed. The demo needs 1.4.4 or later," >&2
+  echo "on channel stable-1.4 (not 'stable'): earlier versions hold gateway responses open on upstream" >&2
+  echo "errors and compressed bodies. Move the rhcl-operator Subscription to channel stable-1.4," >&2
+  echo "approve the upgrade, then re-run. Set SKIP_VERSION_CHECK=true to go ahead anyway." >&2
+  [ "$SKIP_VERSION_CHECK" = "true" ] || exit 1
+fi
+RHOAI_VERSION=$(installed_version rhods-operator)
+if [ -n "$RHOAI_VERSION" ] && version_lt "$RHOAI_VERSION" 3.5.2; then
+  echo "WARNING: OpenShift AI $RHOAI_VERSION is installed; this project is tested on 3.5.2." >&2
 fi
 
 echo "environment.yaml:"
@@ -149,55 +183,69 @@ cat environment.yaml | sed 's/^/  /'
 noisy helm upgrade --install --timeout 15m0s \
   dependency-operators charts/dependency-operators \
   -f environment.yaml
-noisy oc wait --for=condition=Ready datasciencecluster default-dsc --timeout 15m0s
-
-# Build optional Gemini args
-GEMINI_ARGS=()
-if [ -n "$GEMINI_API_KEY" ]; then
-  echo "Deploying with Gemini external model..."
-  GEMINI_ARGS+=(--set "externalModels[0].apiKey=$GEMINI_API_KEY")
-else
-  echo "Skipping Gemini external model (no API key provided)."
-  GEMINI_ARGS+=(--set-json 'externalModels=[]')
+DSC_NAME=$(oc get datasciencecluster -ojsonpath='{.items[0].metadata.name}' 2>/dev/null)
+noisy oc wait --for=condition=Ready datasciencecluster "${DSC_NAME:-default-dsc}" --timeout 15m0s
+DSC_NAME=$(oc get datasciencecluster -ojsonpath='{.items[0].metadata.name}')
+MAAS_STATE=$(oc get datasciencecluster "$DSC_NAME" -ojsonpath='{.spec.components.kserve.modelsAsService.managementState}{.spec.components.aigateway.modelsAsAService.managementState}')
+if [ "${MAAS_STATE#*Managed}" = "$MAAS_STATE" ]; then
+  echo "WARNING: Models-as-a-Service is not Managed in DataScienceCluster $DSC_NAME. Enable it" >&2
+  echo "(spec.components.kserve.modelsAsService) before the models can be served through MaaS." >&2
 fi
 
-# Build traffic UI args
-TRAFFIC_UI_ARGS=()
-ESCAPED_API_KEYS=""
-if [ -n "$TRAFFIC_UI_IMAGE" ]; then
-  echo "Deploying traffic UI with image: $TRAFFIC_UI_IMAGE"
-  TRAFFIC_UI_ARGS+=(--set trafficUI.enabled=true)
-  TRAFFIC_UI_ARGS+=(--set "trafficUI.image=$TRAFFIC_UI_IMAGE")
-  TRAFFIC_UI_ARGS+=(--set "trafficUI.maasGatewayUrl=https://maas.${INGRESS_DOMAIN}")
+# Secrets for the main chart go in a temporary values file (mode 600), not on the command
+# line: they stay out of `ps`, and a --set on one externalModels entry would replace the
+# whole list and deploy no external model at all.
+SECRETS_FILE=$(mktemp)
+chmod 600 "$SECRETS_FILE"
+trap 'rm -f "$SECRETS_FILE"' EXIT
 
-  # MaaS API keys for the UI's users, in the same order as trafficUI.userNames.
-  # Taken from USER_API_KEYS in .env, else read out of user_keys.json. Both are
-  # gitignored; keys are never committed.
-  TRAFFIC_UI_USERS="${TRAFFIC_UI_USERS:-admin,user1,user2,user3,user4,user5}"
-  if [ -z "$USER_API_KEYS" ] && [ -r user_keys.json ]; then
-    for user in ${TRAFFIC_UI_USERS//,/ }; do
-      key=$(sed -n 's/.*"'"$user"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' user_keys.json | head -1)
-      USER_API_KEYS="${USER_API_KEYS:+$USER_API_KEYS,}$key"
-    done
-  fi
-  if [ -n "${USER_API_KEYS//,/}" ]; then
-    echo "Injecting MaaS API keys for: $TRAFFIC_UI_USERS"
-    ESCAPED_API_KEYS="${USER_API_KEYS//,/\\,}"
-    TRAFFIC_UI_ARGS+=(--set-string "trafficUI.apiKeys=$ESCAPED_API_KEYS")
-  elif [ -n "$TRAFFIC_UI_API_KEYS_SECRET" ]; then
-    TRAFFIC_UI_ARGS+=(--set "trafficUI.apiKeysSecret=$TRAFFIC_UI_API_KEYS_SECRET")
-  else
-    echo "No MaaS API keys found. Create them in Gen AI Studio, then put them in" >&2
-    echo "user_keys.json or USER_API_KEYS in .env and re-run. Traffic generation" >&2
-    echo "will not work until then." >&2
-  fi
+# External models: provider keys by model name, as in charts/maas-pulse/values.yaml.
+if [ -z "$GEMINI_API_KEY" ] && [ -z "$OPENAI_API_KEY" ]; then
+  echo "Skipping the external models (no API keys provided)."
+  echo "externalModels: []" >> "$SECRETS_FILE"
 else
-  echo "Skipping traffic UI (no TRAFFIC_UI_IMAGE set). Build with: cd app && podman build -t <image> ."
+  echo "externalModelKeys:" >> "$SECRETS_FILE"
+  if [ -n "$GEMINI_API_KEY" ]; then
+    echo "  \"gemini-3.1-flash-lite\": \"$GEMINI_API_KEY\"" >> "$SECRETS_FILE"
+  else
+    echo "WARNING: no GEMINI_API_KEY: Gemini is deployed with a placeholder key, so its calls will fail." >&2
+  fi
+  if [ -n "$OPENAI_API_KEY" ]; then
+    echo "  \"gpt-5.4-nano\": \"$OPENAI_API_KEY\"" >> "$SECRETS_FILE"
+  else
+    echo "WARNING: no OPENAI_API_KEY: GPT is deployed with a placeholder key, so its calls will fail." >&2
+  fi
+fi
+
+# Traffic UI. The tier users are ServiceAccounts whose tokens the UI mints itself, so the
+# only MaaS API key it needs is admin's. Keys line up with trafficUI.userNames: admin's
+# first, then an empty entry for each tier user. ADMIN_API_KEY from .env, else the "admin"
+# entry of user_keys.json (both gitignored). USER_API_KEYS (one per user) overrides both.
+if [ -z "$ADMIN_API_KEY" ] && [ -r user_keys.json ]; then
+  ADMIN_API_KEY=$(sed -n 's/.*"admin"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' user_keys.json | head -1)
+fi
+USER_COUNT=$(sed -n 's/^[[:space:]]*userNames:[[:space:]]*"\(.*\)".*/\1/p' charts/maas-pulse/values.yaml | head -1 | tr ',' '\n' | wc -l | tr -d ' ')
+UI_KEYS="$USER_API_KEYS"
+if [ -z "$UI_KEYS" ] && [ -n "$ADMIN_API_KEY" ]; then
+  UI_KEYS="$ADMIN_API_KEY"
+  i=1
+  while [ "$i" -lt "$USER_COUNT" ]; do UI_KEYS="$UI_KEYS,"; i=$((i + 1)); done
+fi
+if [ -n "$UI_KEYS" ]; then
+  printf 'trafficUI:\n  apiKeys: "%s"\n' "$UI_KEYS" >> "$SECRETS_FILE"
+else
+  echo "WARNING: no MaaS API key for the traffic UI's admin user, so admin's requests will be" >&2
+  echo "refused (401). After this install, sign in to the OpenShift AI dashboard as admin, create an" >&2
+  echo "API key in Gen AI Studio, put ADMIN_API_KEY=\"...\" in .env and re-run this script." >&2
+fi
+TRAFFIC_UI_ARGS=()
+if [ -n "$TRAFFIC_UI_IMAGE" ]; then
+  TRAFFIC_UI_ARGS+=(--set "trafficUI.image=$TRAFFIC_UI_IMAGE")
 fi
 
 # Only censor non-empty values — an empty pattern matches at position 0.
 CENSOR_ARGS=()
-for secret in "$ADMIN_PASSWORD" "$USER_PASSWORD" "$GEMINI_API_KEY" "$ESCAPED_API_KEYS"; do
+for secret in "$ADMIN_PASSWORD" "$USER_PASSWORD"; do
   if [ -n "$secret" ]; then
     CENSOR_ARGS+=(-c "$secret")
   fi
@@ -210,11 +258,10 @@ noisy "${CENSOR_ARGS[@]}" helm upgrade --install -n default --timeout 20m0s \
   -f environment.yaml \
   --set keycloak.realm.admin.password="$ADMIN_PASSWORD" \
   --set keycloak.realm.user.password="$USER_PASSWORD" \
-  "${GEMINI_ARGS[@]}" \
-  "${TRAFFIC_UI_ARGS[@]}"
+  -f "$SECRETS_FILE" \
+  ${TRAFFIC_UI_ARGS[@]+"${TRAFFIC_UI_ARGS[@]}"}
 
-if [ ${#TRAFFIC_UI_ARGS[@]} -gt 0 ]; then
-  PULSE_HOST="pulse.${INGRESS_DOMAIN}"
-  echo ""
-  echo "Traffic UI deployed at: https://${PULSE_HOST}"
-fi
+echo ""
+echo "Traffic UI: https://pulse.${INGRESS_DOMAIN}"
+echo "Check the deployment with: ./scripts/verify-deployment.sh --skip-paid"
+
