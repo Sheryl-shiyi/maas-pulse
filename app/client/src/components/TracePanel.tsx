@@ -79,18 +79,21 @@ export function TraceCaption({ header, status, steps, index, error, onBack, onNe
   }, [status, onBack, onNext, onClose]);
 
   const step = steps[index];
-  const accent = step?.tone === 'blocked' ? '#ef4444' : step?.tone === 'provider' ? '#f59e0b' : '#fbbf24';
+  // The scene-button blue, so the replay has a colour of its own; red or orange when refused.
+  const accent = step?.tone === 'blocked' ? '#ee0000' : step?.tone === 'provider' ? '#f8ae54' : '#3b8ec4';
   return (
-    <div style={{ ...styles.caption, borderColor: accent }} role="status">
+    <div style={{ ...styles.caption, borderColor: accent, boxShadow: `0 0 0 1px ${accent}, 0 0 26px ${tintOf(accent, 0.45)}`, background: `linear-gradient(${tintOf(accent, 0.22)}, ${tintOf(accent, 0.22)}), rgba(21, 21, 21, 0.98)` }} role="status">
+      {/* Each step pulses the frame twice, so eyes go to the caption when it changes. */}
+      <div key={index} style={{ ...styles.pulse, ['--c' as string]: tintOf(accent, 0.9) } as React.CSSProperties} />
       <div style={styles.captionHead}>
         <span style={styles.captionHeader}>{header}</span>
         {status === 'ready' && <span style={styles.counter}>step {index + 1} of {steps.length}</span>}
       </div>
       {status === 'sending' && <div style={styles.captionTitle}>Sending the request…</div>}
-      {status === 'error' && <div style={{ ...styles.captionTitle, color: '#f87171' }}>Could not trace: {error}</div>}
+      {status === 'error' && <div style={{ ...styles.captionTitle, color: '#f56e6e' }}>Could not trace: {error}</div>}
       {status === 'ready' && step && (
         <>
-          <div style={{ ...styles.captionTitle, color: step.tone ? accent : '#f8fafc' }}>{step.title}</div>
+          <div style={{ ...styles.captionTitle, color: step.tone ? accent : '#fafafa' }}>{step.title}</div>
           {step.lines.map((l, i) => <div key={i} style={styles.line}>{l}</div>)}
         </>
       )}
@@ -111,32 +114,38 @@ export function TraceCaption({ header, status, steps, index, error, onBack, onNe
 
 const styles: Record<string, React.CSSProperties> = {
   formCard: {
-    position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)', width: 'min(520px, 92%)', zIndex: 7,
-    background: 'rgba(15, 23, 42, 0.98)', border: '1px solid #fbbf24', borderRadius: 10, padding: '14px 16px',
-    boxShadow: '0 12px 32px rgba(0,0,0,0.55)', color: '#e2e8f0',
+    position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)', width: 'min(520px, 92%)', zIndex: 30, boxShadow: '0 0 0 1px #3b8ec4, 0 16px 48px rgba(0,0,0,0.6), 0 0 36px rgba(59,142,196,0.45)',
+    background: 'rgba(12, 74, 110, 0.92)', border: '1px solid #3b8ec4', borderRadius: 10, padding: '14px 16px', color: '#e0e0e0',
   },
-  formTitle: { fontSize: 15, fontWeight: 700, color: '#fbbf24' },
-  formHint: { fontSize: 12, color: '#94a3b8', margin: '4px 0 10px' },
+  formTitle: { fontSize: 15, fontWeight: 700, color: '#cfe8f8' },
+  formHint: { fontSize: 12, color: '#a3a3a3', margin: '4px 0 10px' },
   row: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 },
-  label: { fontSize: 13, color: '#94a3b8' },
-  select: { background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 4, padding: '5px 8px', fontSize: 13 },
+  label: { fontSize: 13, color: '#a3a3a3' },
+  select: { background: '#1f1f1f', color: '#e0e0e0', border: '1px solid #383838', borderRadius: 4, padding: '5px 8px', fontSize: 13 },
   input: {
-    width: '100%', boxSizing: 'border-box', background: '#0b1220', color: '#e2e8f0', border: '1px solid #334155',
+    width: '100%', boxSizing: 'border-box', background: '#0b1220', color: '#e0e0e0', border: '1px solid #383838',
     borderRadius: 6, padding: '8px 10px', fontSize: 13, marginBottom: 10,
   },
   buttons: { display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 },
-  primary: { background: '#fbbf24', color: '#111827', border: 'none', borderRadius: 5, padding: '6px 16px', fontWeight: 700, fontSize: 13, cursor: 'pointer' },
+  primary: { background: '#3b8ec4', color: '#ffffff', border: 'none', borderRadius: 5, padding: '6px 16px', fontWeight: 700, fontSize: 13, cursor: 'pointer' },
   disabled: { opacity: 0.35, cursor: 'default' },
-  secondary: { background: 'transparent', color: '#cbd5e1', border: '1px solid #334155', borderRadius: 5, padding: '6px 12px', fontSize: 13, cursor: 'pointer' },
+  secondary: { background: 'transparent', color: '#c7c7c7', border: '1px solid #383838', borderRadius: 5, padding: '6px 12px', fontSize: 13, cursor: 'pointer' },
   // Docked at the top of the sidebar, so it never covers the part of the canvas it is
   // talking about (it used to sit on the gateway's lower steps).
   caption: {
-    margin: 8, background: 'rgba(15, 23, 42, 0.98)', border: '1px solid', borderLeftWidth: 4, borderRadius: 10,
-    padding: '12px 14px', boxShadow: '0 8px 24px rgba(0,0,0,0.45)', color: '#e2e8f0', flexShrink: 0,
+    margin: 8, position: 'relative', background: 'rgba(21, 21, 21, 0.98)', border: '1px solid', borderLeftWidth: 4, borderRadius: 10,
+    padding: '12px 14px', boxShadow: '0 8px 24px rgba(0,0,0,0.45)', color: '#e0e0e0', flexShrink: 0,
   },
+  pulse: { position: 'absolute', inset: -1, borderRadius: 10, pointerEvents: 'none', animation: 'traceFocus 1s ease-out 2' },
   captionHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 },
-  captionHeader: { fontSize: 12, color: '#94a3b8', fontWeight: 600 },
-  counter: { fontSize: 12, color: '#64748b' },
+  captionHeader: { fontSize: 12, color: '#a3a3a3', fontWeight: 600 },
+  counter: { fontSize: 12, color: '#8a8a8a' },
   captionTitle: { fontSize: 16, fontWeight: 700, margin: '2px 0 6px', lineHeight: 1.3 },
-  line: { fontSize: 14, color: '#cbd5e1', lineHeight: 1.5 },
+  line: { fontSize: 14, color: '#c7c7c7', lineHeight: 1.5 },
 };
+
+/** "#rrggbb" at the given opacity: a translucent block of the accent colour. */
+function tintOf(hex: string, a: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}

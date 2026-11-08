@@ -181,7 +181,7 @@ export function Controls({ models, users, trafficRunning, connected, send, onTra
               onClick={() => toggleUser(u.name)}
               style={{
                 ...styles.chip,
-                background: selectedUsers.includes(u.name) ? '#1976d2' : '#333',
+                background: selectedUsers.includes(u.name) ? '#0066cc' : '#333',
                 opacity: trafficRunning ? 0.6 : 1,
               }}
               disabled={trafficRunning}
@@ -199,7 +199,7 @@ export function Controls({ models, users, trafficRunning, connected, send, onTra
               onClick={() => toggleModel(m.name)}
               style={{
                 ...styles.chip,
-                background: selectedModels.includes(m.name) ? '#7b1fa2' : '#333',
+                background: selectedModels.includes(m.name) ? '#5e40be' : '#333',
                 opacity: trafficRunning ? 0.6 : 1,
               }}
               disabled={trafficRunning}
@@ -242,21 +242,21 @@ function promptHint(shape: PromptShape, tokens: number): string {
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  container: { padding: '12px 20px', background: '#131824', borderBottom: '1px solid #1e293b' },
+  container: { padding: '12px 20px', background: '#141414', borderBottom: '1px solid #1f1f1f' },
   row: { display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap', marginBottom: 8 },
   group: { display: 'flex', alignItems: 'center', gap: 8 },
-  label: { fontSize: 13, color: '#94a3b8', whiteSpace: 'nowrap' },
-  select: { background: '#1e293b', color: '#e0e0e0', border: '1px solid #334155', borderRadius: 4, padding: '4px 8px', fontSize: 13 },
+  label: { fontSize: 13, color: '#a3a3a3', whiteSpace: 'nowrap' },
+  select: { background: '#1f1f1f', color: '#e0e0e0', border: '1px solid #383838', borderRadius: 4, padding: '4px 8px', fontSize: 13 },
   slider: { width: 100 },
   startBtn: { background: '#4caf50', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer' },
-  traceBtn: { background: 'transparent', color: '#fbbf24', border: '1px solid #fbbf24', borderRadius: 4, padding: '6px 14px', fontSize: 14, fontWeight: 600, cursor: 'pointer' },
-  stopBtn: { background: '#f44336', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer' },
+  traceBtn: { background: 'transparent', color: '#f2f2f2', border: '1px solid #f2f2f2', borderRadius: 4, padding: '6px 14px', fontSize: 14, fontWeight: 600, cursor: 'pointer' },
+  stopBtn: { background: '#ee0000', color: '#fff', border: 'none', borderRadius: 4, padding: '6px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer' },
   scenes: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', margin: '0 0 8px' },
-  scene: { background: 'transparent', color: '#7dd3fc', border: '1px solid rgba(56,189,248,0.5)', borderRadius: 14, padding: '3px 11px', fontSize: 12, cursor: 'pointer' },
-  sceneActive: { background: '#0c4a6e', color: '#e0f2fe', borderColor: '#38bdf8' },
-  hint: { display: 'flex', columnGap: 24, rowGap: 2, flexWrap: 'wrap', fontSize: 11, color: '#94a3b8', margin: '-2px 0 8px' },
-  hintKey: { color: '#cbd5e1', fontWeight: 600 },
+  scene: { background: 'transparent', color: '#e0e0e0', border: '1px solid rgba(242,242,242,0.5)', borderRadius: 14, padding: '3px 11px', fontSize: 12, cursor: 'pointer' },
+  sceneActive: { background: '#0c4a6e', color: '#f2f2f2', borderColor: '#f2f2f2' },
+  hint: { display: 'flex', columnGap: 24, rowGap: 2, flexWrap: 'wrap', fontSize: 11, color: '#a3a3a3', margin: '-2px 0 8px' },
+  hintKey: { color: '#c7c7c7', fontWeight: 600 },
   chips: { display: 'flex', alignItems: 'center', gap: 6 },
-  chipLabel: { fontSize: 12, color: '#64748b' },
+  chipLabel: { fontSize: 12, color: '#8a8a8a' },
   chip: { color: '#e0e0e0', border: 'none', borderRadius: 12, padding: '3px 10px', fontSize: 12, cursor: 'pointer' },
 };

@@ -28,16 +28,18 @@ export function SceneCard({ scene, index, total, trafficRunning, onStop, onClose
 }
 
 const styles: Record<string, React.CSSProperties> = {
+  // A translucent block of the blue the scene buttons turn when pressed, so the card
+  // reads as belonging to the scene just started.
   card: {
-    margin: 8, background: 'rgba(15, 23, 42, 0.98)', border: '1px solid #38bdf8', borderLeftWidth: 4,
-    borderRadius: 10, padding: '10px 14px', color: '#e2e8f0', flexShrink: 0,
+    margin: 8, background: 'rgba(12, 74, 110, 0.55)', border: '1px solid #1d6a99', borderLeft: '4px solid #3b8ec4',
+    borderRadius: 10, padding: '10px 14px', color: '#e0e0e0', flexShrink: 0,
   },
   head: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  kicker: { fontSize: 12, color: '#38bdf8', fontWeight: 700 },
-  close: { background: 'transparent', border: 'none', color: '#94a3b8', fontSize: 18, lineHeight: 1, cursor: 'pointer', padding: 0 },
-  title: { fontSize: 16, fontWeight: 700, margin: '2px 0 6px', color: '#f8fafc' },
-  watchLabel: { fontSize: 11, color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 },
+  kicker: { fontSize: 12, color: '#9fd0f0', fontWeight: 700 },
+  close: { background: 'transparent', border: 'none', color: '#a3a3a3', fontSize: 18, lineHeight: 1, cursor: 'pointer', padding: 0 },
+  title: { fontSize: 16, fontWeight: 700, margin: '2px 0 6px', color: '#fafafa' },
+  watchLabel: { fontSize: 11, color: '#8a8a8a', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 },
   list: { margin: '4px 0 6px', paddingLeft: 18 },
-  item: { fontSize: 13, color: '#cbd5e1', lineHeight: 1.45, marginBottom: 3 },
-  stop: { background: 'transparent', color: '#f87171', border: '1px solid #f87171', borderRadius: 5, padding: '4px 12px', fontSize: 12, cursor: 'pointer' },
+  item: { fontSize: 13, color: '#c7c7c7', lineHeight: 1.45, marginBottom: 3 },
+  stop: { background: 'transparent', color: '#f56e6e', border: '1px solid #f56e6e', borderRadius: 5, padding: '4px 12px', fontSize: 12, cursor: 'pointer' },
 };

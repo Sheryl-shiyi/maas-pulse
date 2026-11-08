@@ -30,7 +30,7 @@ export function providerLabel(p: Provider | null): string {
 const cache = new Map<Provider, Path2D>();
 
 /** Draw a provider mark of the given size, centred on (cx, cy). */
-export function drawProviderLogo(ctx: CanvasRenderingContext2D, p: Provider, cx: number, cy: number, size: number, color = '#fff') {
+export function drawProviderLogo(ctx: CanvasRenderingContext2D, p: Provider, cx: number, cy: number, size: number, color: string | CanvasGradient = '#fff') {
   let path = cache.get(p);
   if (!path) {
     path = new Path2D(PATHS[p]);

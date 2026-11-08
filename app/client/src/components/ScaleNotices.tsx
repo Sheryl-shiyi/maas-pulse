@@ -17,9 +17,10 @@ export function ScaleNotices({ notices, onDismiss }: ScaleNoticesProps) {
     <div style={styles.stack}>
       {notices.map(n => {
         const up = n.direction === 'up';
-        const accent = up ? '#f59e0b' : '#38bdf8';
+        // Green: a new vLLM replica, the colour of our replicas. Not the gateway's colour.
+        const accent = up ? '#4caf50' : '#a3a3a3';
         return (
-          <div key={n.id} style={{ ...styles.card, borderColor: accent }} role="status">
+          <div key={n.id} style={{ ...styles.card, borderColor: accent, background: `linear-gradient(${tintOf(accent, 0.13)}, ${tintOf(accent, 0.13)}), rgba(21, 21, 21, 0.97)` }} role="status">
             <div style={styles.header}>
               <span style={{ ...styles.icon, color: accent }}>{up ? '▲' : '▼'}</span>
               <span style={styles.title}>
@@ -38,9 +39,9 @@ export function ScaleNotices({ notices, onDismiss }: ScaleNoticesProps) {
                 {n.checks.map(c => (
                   <tr key={c.label}>
                     <td style={styles.label}>{c.label}</td>
-                    <td style={{ ...styles.value, color: c.tripped ? accent : '#cbd5e1' }}>{c.value}{c.unit}</td>
+                    <td style={{ ...styles.value, color: c.tripped ? accent : '#c7c7c7' }}>{c.value}{c.unit}</td>
                     <td style={styles.limit}>{limitText(n.direction, c.limit, c.unit)}</td>
-                    <td style={{ ...styles.badge, color: c.tripped ? accent : '#475569' }}>
+                    <td style={{ ...styles.badge, color: c.tripped ? accent : '#4d4d4d' }}>
                       {c.tripped ? (up ? 'triggered' : 'met') : 'not the cause'}
                     </td>
                   </tr>
@@ -70,22 +71,28 @@ const styles: Record<string, React.CSSProperties> = {
     width: 'min(560px, 92%)', display: 'flex', flexDirection: 'column', gap: 8, zIndex: 5,
   },
   card: {
-    background: 'rgba(15, 23, 42, 0.97)', border: '1px solid', borderLeftWidth: 4, borderRadius: 8,
-    padding: '10px 12px', boxShadow: '0 8px 24px rgba(0,0,0,0.45)', color: '#e2e8f0', fontSize: 12,
+    background: 'rgba(21, 21, 21, 0.97)', border: '1px solid', borderLeftWidth: 4, borderRadius: 8,
+    padding: '10px 12px', boxShadow: '0 8px 24px rgba(0,0,0,0.45)', color: '#e0e0e0', fontSize: 12,
   },
   header: { display: 'flex', alignItems: 'center', gap: 8 },
   icon: { fontSize: 12 },
   title: { fontWeight: 700, fontSize: 13, flex: 1 },
-  time: { color: '#64748b', fontSize: 11 },
+  time: { color: '#8a8a8a', fontSize: 11 },
   close: {
-    background: 'transparent', border: 'none', color: '#94a3b8', fontSize: 18, lineHeight: 1,
+    background: 'transparent', border: 'none', color: '#a3a3a3', fontSize: 18, lineHeight: 1,
     cursor: 'pointer', padding: '0 2px',
   },
-  why: { color: '#94a3b8', margin: '6px 0 4px' },
+  why: { color: '#a3a3a3', margin: '6px 0 4px' },
   table: { borderCollapse: 'collapse', width: '100%' },
-  label: { padding: '2px 8px 2px 0', color: '#cbd5e1' },
+  label: { padding: '2px 8px 2px 0', color: '#c7c7c7' },
   value: { padding: '2px 8px', fontWeight: 700, textAlign: 'right', width: 60 },
-  limit: { padding: '2px 8px', color: '#64748b' },
+  limit: { padding: '2px 8px', color: '#8a8a8a' },
   badge: { padding: '2px 0', fontWeight: 600, textAlign: 'right' },
-  next: { color: '#94a3b8', marginTop: 6, lineHeight: 1.45 },
+  next: { color: '#a3a3a3', marginTop: 6, lineHeight: 1.45 },
 };
+
+/** "#rrggbb" at the given opacity: a translucent block of the accent colour. */
+function tintOf(hex: string, a: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}

@@ -6,21 +6,23 @@ import { providerOf, providerLabel, drawProviderLogo } from './providerLogos';
 import { userColors } from './colors';
 import { formatSeconds } from './format';
 
-const STATUS_COLORS: Record<string, string> = { healthy: '#4caf50', busy: '#ff9800', overloaded: '#f44336' };
-const RATE_LIMITED_COLOR = '#475569';
-const QUEUE_COLOR = '#ef4444';
-const CACHE_COLOR = '#38bdf8';
+const STATUS_COLORS: Record<string, string> = { healthy: '#4caf50', busy: '#f5921b', overloaded: '#ee0000' };
+const RATE_LIMITED_COLOR = '#4d4d4d';
+const QUEUE_COLOR = '#ee0000';
+const CACHE_COLOR = '#f2f2f2';
 /**
  * External models have no vLLM metrics, so they never get a health colour. They used to
- * fall through to slate grey, which read as "offline". Indigo says "served by someone
- * else" without borrowing the green/orange/red that mean something for internal models.
+ * fall through to slate grey, which read as "offline". A bright silver with the provider's
+ * white logo says "served by someone else" without borrowing the green/orange/red that
+ * mean something for internal models. Red Hat purple-40: close to the indigo it used to be,
+ * which the user missed when it went silver.
  */
-const EXTERNAL_COLOR = '#4f46e5';
-const CAPTION_COLOR = 'rgba(148, 163, 184, 0.85)';
+const EXTERNAL_COLOR = '#876fd4';
+const CAPTION_COLOR = 'rgba(163, 163, 163, 0.85)';
 /** Card background shared by the tier bands, the gateway and the model cards. */
-const CARD_FILL = '#0f172a';
+const CARD_FILL = '#151515';
 /** Connection lines: bright enough to read on a projector, still behind everything. */
-const EDGE_COLOR = '#334155';
+const EDGE_COLOR = '#383838';
 
 /**
  * All canvas text is drawn this much larger than the sizes written in this file, so the
@@ -30,13 +32,14 @@ const TEXT_SCALE = 1.15;
 function font(size: number, weight = '', family = '-apple-system, sans-serif'): string {
   return `${weight} ${Math.round(size * TEXT_SCALE * 2) / 2}px ${family}`.trim();
 }
-const GATEWAY_COLOR = '#ff9800';
+/** Red Hat purple: well apart from llm-d's yellow and from the orange of a busy replica. */
+const GATEWAY_COLOR = '#876fd4';
 /** llm-d's accent: a colour nothing else on the canvas uses. */
-const LLMD_COLOR = '#e879f9';
+const LLMD_COLOR = '#ffcc17';
 /** MaaS refused the request: its own token limit, authentication or access. */
-const BLOCKED_COLOR = '#ef4444';
+const BLOCKED_COLOR = '#ee0000';
 /** The provider behind an external model refused it (its own rate limit), not MaaS. */
-const PROVIDER_LIMIT_COLOR = '#f59e0b';
+const PROVIDER_LIMIT_COLOR = '#f8ae54';
 
 /**
  * Full scale for the load bar, in requests.
@@ -130,6 +133,7 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
   const barsRef = useRef(new Map<string, { running: number; queued: number; cache: number }>());
   /** Clickable areas drawn in the last frame, in canvas (CSS) pixels. */
   const regionsRef = useRef<HelpTarget[]>([]);
+  const hoverRef = useRef<{ x: number; y: number } | null>(null);
   /** Which replica each in-flight request's dot is heading for, chosen once. */
   const routedRef = useRef(new Map<string, number>());
   const [help, setHelp] = useState<HelpTarget | null>(null);
@@ -320,7 +324,7 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
       for (const box of boxes) {
         const from = isInternal(box.modelIdx) && llmdOut ? llmdOut : layout.exit;
         const door = doorOf(box);
-        drawCurve(ctx, from.x, from.y, door.x, door.y, box.provisioning ? '#1e293b' : EDGE_COLOR);
+        drawCurve(ctx, from.x, from.y, door.x, door.y, box.provisioning ? '#1f1f1f' : EDGE_COLOR);
       }
       // Where the lines to the cloud-hosted APIs cross the boundary.
       const crossings = boxes.filter(b => !isInternal(b.modelIdx))
@@ -445,20 +449,21 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
         if (box.provisioning) {
           ctx.beginPath();
           ctx.roundRect(box.x - modelRectW / 2, box.y - modelRectH / 2, modelRectW, modelRectH, 10);
-          ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
+          ctx.fillStyle = 'rgba(21, 21, 21, 0.6)';
           ctx.fill();
           ctx.setLineDash([6, 4]);
-          ctx.strokeStyle = '#f59e0b';
+          // Light grey, dashed: not ready yet. (Amber here clashed with llm-d's yellow.)
+          ctx.strokeStyle = '#a3a3a3';
           ctx.lineWidth = 2;
           ctx.stroke();
           ctx.setLineDash([]);
           // Name the replica that is coming, and how long it has been starting: a new
           // vLLM pod takes 5-10 minutes (image pulls, model load), and an audience
           // watching a box that just says "Starting..." cannot tell slow from stuck.
-          drawText(ctx, `${model.displayName} #${box.replicaIdx + 1}`, box.x, box.y - 8, '#f59e0b', 13, 'bold');
+          drawText(ctx, `${model.displayName} #${box.replicaIdx + 1}`, box.x, box.y - 8, '#e0e0e0', 13, 'bold');
           const since = model.scalingSince ? Math.max(0, Math.floor((Date.now() - model.scalingSince) / 1000)) : null;
           const clock = since === null ? '' : ` · ${Math.floor(since / 60)}:${String(since % 60).padStart(2, '0')}`;
-          drawText(ctx, `starting on a new GPU${clock}`, box.x, box.y + 12, 'rgba(245, 158, 11, 0.85)', 10);
+          drawText(ctx, `starting on a new GPU${clock}`, box.x, box.y + 12, '#a3a3a3', 10);
         } else {
           // A replica that is Ready but has not been scraped yet has no figures of its
           // own. It must not borrow the model-level summary: with only one replica
@@ -466,28 +471,30 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
           // pod appeared as an exact clone of the busy one it had just joined.
           const stat = model.replicaStats[box.replicaIdx];
           const external = model.type !== 'internal';
-          const statusColor = external ? EXTERNAL_COLOR : stat ? (STATUS_COLORS[stat.status] || '#4caf50') : '#475569';
+          const provider = external ? providerOf(model.name) : null;
+          const statusColor = external ? providerColor(provider) : stat ? (STATUS_COLORS[stat.status] || '#4caf50') : '#4d4d4d';
           // A dark card like every other node, its state in the border and a small label.
           // A solid green box was the loudest thing on screen while saying the least:
           // healthy is the state that needs no attention. Busy and overloaded also glow.
           drawCard(ctx, box.x - modelRectW / 2, box.y - modelRectH / 2, modelRectW, modelRectH,
             statusColor, !external && !!stat && stat.status !== 'healthy');
+          if (provider === 'gemini') strokeGemini(ctx, box.x - modelRectW / 2, box.y - modelRectH / 2, modelRectW, modelRectH);
+          drawInfo(ctx, box.x + modelRectW / 2 - 12, box.y + modelRectH / 2 - 11);
           if (!external) {
             drawStatusPill(ctx, box.x + modelRectW / 2, box.y - modelRectH / 2, stat ? stat.status : 'no data', statusColor);
           }
           const label = totalBoxes > 1 ? `${model.displayName} #${box.replicaIdx + 1}` : model.displayName;
-          drawText(ctx, label, box.x, box.y - 8, '#f1f5f9', 13, 'bold');
+          drawText(ctx, label, box.x, box.y - 8, '#f2f2f2', 13, 'bold');
           const boxRect = { x: box.x - modelRectW / 2, y: box.y - modelRectH / 2, w: modelRectW, h: modelRectH };
           if (!again) regions.push({ topic: external ? 'external' : 'replica', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: boxRect });
           if (!external) {
             // Say what is serving here. Running, queued and the hit rate have bars of
             // their own below; the KV cache, one of the two scale-up triggers, does not.
             const detail = stat ? `vLLM · KV cache ${stat.kvCachePercent}%` : 'vLLM · awaiting metrics';
-            drawText(ctx, detail, box.x, box.y + 12, '#94a3b8', 10);
+            drawText(ctx, detail, box.x, box.y + 12, '#a3a3a3', 10);
           } else {
-            const provider = providerOf(model.name);
-            if (provider) drawProviderLogo(ctx, provider, box.x - modelRectW / 2 + 22, box.y, 22, '#c7d2fe');
-            drawText(ctx, providerLabel(provider), box.x, box.y + 12, '#a5b4fc', 11);
+            if (provider) drawProviderLogo(ctx, provider, box.x - modelRectW / 2 + 22, box.y, 22, provider === 'gemini' ? geminiGradient(ctx, box.x - modelRectW / 2 + 11, box.y - 11, 22) : '#ffffff');
+            drawText(ctx, providerLabel(provider), box.x, box.y + 12, provider === 'gemini' ? '#a8c7fa' : provider === 'openai' ? '#7fdcc2' : '#c7c7c7', 11);
           }
 
           // Below the box: how much work this replica is holding, and how warm its
@@ -564,7 +571,7 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
             return { x: layout.gateway.x + layout.gateway.w / 2, y: layout.gatewayY };
           };
 
-          ctx.fillStyle = 'rgba(3, 6, 12, 0.74)';
+          ctx.fillStyle = 'rgba(5, 5, 5, 0.74)';
           ctx.fillRect(0, 0, w, h);
 
           if (trace.reached.some(f => f !== 'user')) drawCurve(ctx, userPt.x, userPt.y, layout.entry.x, layout.entry.y, TRACE_COLOR, 3);
@@ -627,6 +634,39 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
         traceDotRef.current.key = '';
       }
 
+      // What can be clicked: an outline on whatever is under the pointer, and one line
+      // under the gateway for the audience, who cannot see the pointer.
+      if (!trace) {
+        const hp = hoverRef.current;
+        const hit = hp && regions.find(g => hp.x / fit >= g.rect.x && hp.x / fit <= g.rect.x + g.rect.w && hp.y / fit >= g.rect.y && hp.y / fit <= g.rect.y + g.rect.h);
+        if (hit) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.roundRect(hit.rect.x - 3, hit.rect.y - 3, hit.rect.w + 6, hit.rect.h + 6, 9);
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+          ctx.restore();
+        }
+        const g = layout.gateway;
+        if (g.y + g.h + 26 < cssH / fit) {
+          ctx.save();
+          ctx.font = font(10);
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = '#8a8a8a';
+          const a = 'Click a gateway step, a card or any', b = 'for what it does', gap = 18;
+          const wa = ctx.measureText(a).width, wb = ctx.measureText(b).width, y = g.y + g.h + 22;
+          const x0 = g.x + g.w / 2 - (wa + gap + wb) / 2;
+          ctx.textAlign = 'left';
+          ctx.fillText(a, x0, y);
+          drawInfo(ctx, x0 + wa + gap / 2, y);
+          ctx.fillText(b, x0 + wa + gap, y);
+          ctx.restore();
+        }
+      }
       ctx.restore();
       // Clickable areas in real canvas pixels, for hit testing and placing popovers.
       regionsRef.current = regions.map(g => ({
@@ -663,7 +703,12 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
           const g = regionAt(e);
           setHelp(prev => (g && !(prev && prev.topic === g.topic && prev.modelIdx === g.modelIdx && prev.replicaIdx === g.replicaIdx) ? g : null));
         }}
-        onMouseMove={e => { e.currentTarget.style.cursor = regionAt(e) ? 'pointer' : 'default'; }}
+        onMouseMove={e => {
+          const r = e.currentTarget.getBoundingClientRect();
+          hoverRef.current = { x: e.clientX - r.left, y: e.clientY - r.top };
+          e.currentTarget.style.cursor = regionAt(e) ? 'pointer' : 'default';
+        }}
+        onMouseLeave={() => { hoverRef.current = null; }}
       />
       {help && (
         <HelpPopover
@@ -709,7 +754,7 @@ function minHeightFor(
 }
 
 /** The replay's light: the path walked so far and the step in focus. */
-const TRACE_COLOR = '#fbbf24';
+const TRACE_COLOR = '#f2f2f2';
 
 function toneColor(tone: 'blocked' | 'provider'): string {
   return tone === 'blocked' ? BLOCKED_COLOR : PROVIDER_LIMIT_COLOR;
@@ -752,8 +797,9 @@ function drawTraceDot(ctx: CanvasRenderingContext2D, pos: { x: number; y: number
 /** llm-d's card: the inference scheduler between the gateway and our replicas. */
 function drawLlmd(ctx: CanvasRenderingContext2D, r: Rect, active: boolean): void {
   drawCard(ctx, r.x, r.y, r.w, r.h, LLMD_COLOR, active);
-  drawText(ctx, 'llm-d', r.x + r.w / 2, r.y + r.h / 2 - 8, '#f1f5f9', 14, 'bold');
-  drawText(ctx, 'inference scheduler', r.x + r.w / 2, r.y + r.h / 2 + 11, '#f0abfc', 9);
+  drawText(ctx, 'llm-d', r.x + r.w / 2, r.y + r.h / 2 - 8, '#f2f2f2', 14, 'bold');
+  drawText(ctx, 'inference scheduler', r.x + r.w / 2, r.y + r.h / 2 + 11, '#ffe072', 9);
+  drawInfo(ctx, r.x + r.w - 11, r.y + r.h - 11);
 }
 
 type Pt = { x: number; y: number };
@@ -785,29 +831,47 @@ function clusterBoundary(g: Rect, self: Rect | undefined, cloud: Rect | undefine
   ];
 }
 
+/** The Red Hat hat (official paths from logo--on-dark.svg, without the wordmark), at height h. */
+const RH_HAT = new Path2D('M127.47,83.49c12.51,0,30.61-2.58,30.61-17.46a14,14,0,0,0-.31-3.42l-7.45-32.36c-1.72-7.12-3.23-10.35-15.73-16.6C124.89,8.69,103.76.5,97.51.5,91.69.5,90,8,83.06,8c-6.68,0-11.64-5.6-17.89-5.6-6,0-9.91,4.09-12.93,12.5,0,0-8.41,23.72-9.49,27.16A6.43,6.43,0,0,0,42.53,44c0,9.22,36.3,39.45,84.94,39.45M160,72.07c1.73,8.19,1.73,9.05,1.73,10.13,0,14-15.74,21.77-36.43,21.77C78.54,104,37.58,76.6,37.58,58.49a18.45,18.45,0,0,1,1.51-7.33C22.27,52,.5,55,.5,74.22c0,31.48,74.59,70.28,133.65,70.28,45.28,0,56.7-20.48,56.7-36.65,0-12.72-11-27.16-30.83-35.78');
+const RH_BAND = new Path2D('M160,72.07c1.73,8.19,1.73,9.05,1.73,10.13,0,14-15.74,21.77-36.43,21.77C78.54,104,37.58,76.6,37.58,58.49a18.45,18.45,0,0,1,1.51-7.33l3.66-9.06A6.43,6.43,0,0,0,42.53,44c0,9.22,36.3,39.45,84.94,39.45,12.51,0,30.61-2.58,30.61-17.46a14,14,0,0,0-.31-3.42Z');
+function drawRedHatLogo(ctx: CanvasRenderingContext2D, x: number, y: number, h: number): void {
+  const s = h / 145;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(s, s);
+  ctx.fillStyle = '#ee0000'; ctx.fill(RH_HAT);
+  ctx.fillStyle = '#000000'; ctx.fill(RH_BAND);
+  ctx.restore();
+}
+
 function drawBoundary(ctx: CanvasRenderingContext2D, poly: Pt[]): void {
   if (poly.length < 3) return;
   ctx.save();
   ctx.beginPath();
   poly.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
   ctx.closePath();
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.025)';
+  ctx.fillStyle = 'rgba(163, 163, 163, 0.025)';
   ctx.fill();
   ctx.setLineDash([8, 6]);
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.55)';
+  // Red Hat red: the line that prompts to our own models never cross.
+  ctx.strokeStyle = 'rgba(238, 0, 0, 0.8)';
   ctx.lineWidth = 1.5;
   ctx.stroke();
   ctx.setLineDash([]);
   const corner = poly[0]!;
+  // The Red Hat hat ahead of the label (the hat alone, no wordmark).
+  const logoH = 16, logoW = logoH * 192 / 145;
+  drawRedHatLogo(ctx, corner.x + 12, corner.y + 13 - logoH / 2, logoH);
+  const tx = corner.x + 12 + logoW + 9;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.font = font(10, 'bold', 'system-ui, sans-serif');
-  ctx.fillStyle = '#cbd5e1';
-  ctx.fillText('YOUR OPENSHIFT CLUSTER', corner.x + 12, corner.y + 13);
+  ctx.fillStyle = '#e0e0e0';
+  ctx.fillText('YOUR OPENSHIFT CLUSTER', tx, corner.y + 13);
   ctx.font = font(9, '', 'system-ui, sans-serif');
-  ctx.fillStyle = '#94a3b8';
-  ctx.fillText('prompts and data stay inside', corner.x + 12, corner.y + 27);
+  ctx.fillStyle = '#a3a3a3';
+  ctx.fillText('prompts and data stay inside', corner.x + 12, corner.y + 29);
   ctx.restore();
 }
 
@@ -836,9 +900,9 @@ function drawLeavesMarker(ctx: CanvasRenderingContext2D, points: Pt[], lit: bool
   ctx.save();
   for (const p of points) {
     ctx.beginPath();
-    ctx.arc(p.x, p.y, lit ? 5 : 3.5, 0, Math.PI * 2);
-    ctx.fillStyle = lit ? '#c7d2fe' : '#818cf8';
-    if (lit) { ctx.shadowColor = '#818cf8'; ctx.shadowBlur = 14; }
+    ctx.arc(p.x, p.y, lit ? 5 : 4, 0, Math.PI * 2);
+    ctx.fillStyle = lit ? '#ff6b6b' : '#ee0000';
+    if (lit) { ctx.shadowColor = '#ee0000'; ctx.shadowBlur = 14; }
     ctx.fill();
     ctx.shadowBlur = 0;
   }
@@ -846,21 +910,64 @@ function drawLeavesMarker(ctx: CanvasRenderingContext2D, points: Pt[], lit: bool
   const text = 'prompt leaves your network';
   ctx.font = font(9, 'bold');
   const tw = ctx.measureText(text).width;
-  const w = tw + 16, h = 18;
+  const w = tw + 18, h = 19;
   const x = anchor.x - w - 10, y = anchor.y - h - 6;
+  // Red, like the boundary it sits on: framed at rest, solid and glowing as a prompt crosses.
   ctx.beginPath();
   ctx.roundRect(x, y, w, h, h / 2);
-  ctx.fillStyle = CARD_FILL;
-  if (lit) { ctx.shadowColor = '#818cf8'; ctx.shadowBlur = 16; }
+  ctx.fillStyle = '#151515';
+  ctx.fill();
+  if (lit) { ctx.shadowColor = '#ee0000'; ctx.shadowBlur = 18; }
+  ctx.fillStyle = lit ? '#ee0000' : 'rgba(238, 0, 0, 0.22)';
   ctx.fill();
   ctx.shadowBlur = 0;
-  ctx.strokeStyle = lit ? '#a5b4fc' : 'rgba(129, 140, 248, 0.6)';
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = lit ? '#ff6b6b' : '#ee0000';
+  ctx.lineWidth = 1.5;
   ctx.stroke();
-  ctx.fillStyle = lit ? '#e0e7ff' : '#a5b4fc';
+  ctx.fillStyle = '#ffffff';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, x + w / 2, y + h / 2 + 0.5);
+  ctx.restore();
+}
+
+/** Provider brand colours for cloud-hosted cards: OpenAI's green, Gemini's blue (its border is a gradient). */
+function providerColor(p: string | null): string {
+  return p === 'openai' ? '#10a37f' : p === 'gemini' ? '#5b8def' : '#a3a3a3';
+}
+/** Gemini's blue-to-purple, as a gradient across a box. */
+function geminiGradient(ctx: CanvasRenderingContext2D, x: number, y: number, w: number): CanvasGradient {
+  const g = ctx.createLinearGradient(x, y, x + w, y + w);
+  g.addColorStop(0, '#4285f4');
+  g.addColorStop(0.55, '#9b72cb');
+  g.addColorStop(1, '#d96570');
+  return g;
+}
+function strokeGemini(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, 10);
+  const g = ctx.createLinearGradient(x, y, x + w, y);
+  g.addColorStop(0, '#4285f4');
+  g.addColorStop(1, '#9b72cb');
+  ctx.strokeStyle = g;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
+}
+/** A small (i): this can be clicked for an explanation. */
+function drawInfo(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, 5, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(224, 224, 224, 0.75)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.font = font(7.5, 'bold');
+  ctx.fillStyle = 'rgba(224, 224, 224, 0.9)';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('i', x, y + 0.5);
   ctx.restore();
 }
 
@@ -873,23 +980,33 @@ function drawModelGroup(
   ctx.save();
   ctx.beginPath();
   ctx.roundRect(x, y, w, h, 10);
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.06)';
-  ctx.strokeStyle = external ? 'rgba(129, 140, 248, 0.35)' : 'rgba(148, 163, 184, 0.22)';
+  ctx.fillStyle = external ? 'rgba(255, 255, 255, 0.035)' : tint('#4caf50', 0.045);
+  ctx.strokeStyle = external ? 'rgba(255, 255, 255, 0.22)' : tint('#4caf50', 0.28);
   ctx.lineWidth = 1;
   ctx.fill();
   ctx.stroke();
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.font = font(10, 'bold', 'system-ui, sans-serif');
-  ctx.fillStyle = external ? '#a5b4fc' : '#94a3b8';
+  ctx.fillStyle = external ? '#e0e0e0' : '#a5d6a7';
   ctx.fillText(label, x + 9, y + 11);
   ctx.font = font(9, '', 'system-ui, sans-serif');
-  ctx.fillStyle = '#64748b';
+  ctx.fillStyle = '#8a8a8a';
   ctx.fillText(note, x + 9, y + 23);
   ctx.restore();
 }
 
-/** A node card: dark fill, coloured border, and a glow when it needs attention. */
+/** "#rrggbb" at the given opacity. */
+function tint(hex: string, a: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}
+
+/**
+ * A node card: a block of its own colour (a translucent tint over the dark fill), a
+ * coloured border, and a glow when it needs attention. Plain black cards on the black
+ * page read as holes; the tint is what makes each layer a block you can see.
+ */
 function drawCard(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, border: string, glow: boolean): void {
   ctx.save();
   ctx.beginPath();
@@ -901,6 +1018,8 @@ function drawCard(ctx: CanvasRenderingContext2D, x: number, y: number, w: number
   }
   ctx.fill();
   ctx.shadowBlur = 0;
+  ctx.fillStyle = tint(border, 0.16);
+  ctx.fill();
   ctx.strokeStyle = border;
   ctx.lineWidth = 1.5;
   ctx.stroke();
@@ -926,7 +1045,7 @@ function drawStatusPill(ctx: CanvasRenderingContext2D, cardRight: number, cardTo
   ctx.restore();
 }
 
-/** The light-blue ring on a returning dot whose prompt came mostly from the prefix cache. */
+/** The white ring on a returning dot whose prompt came mostly from the prefix cache. */
 function drawCacheRing(ctx: CanvasRenderingContext2D, pos: { x: number; y: number }): void {
   ctx.save();
   ctx.beginPath();
@@ -992,11 +1111,13 @@ function drawGateway(
   ctx.save();
   ctx.beginPath();
   ctx.roundRect(card.x, card.y, card.w, card.h, 12);
-  ctx.fillStyle = '#0f172a';
-  ctx.shadowColor = 'rgba(255, 152, 0, 0.28)';
+  ctx.fillStyle = '#151515';
+  ctx.shadowColor = 'rgba(135, 111, 212, 0.32)';
   ctx.shadowBlur = 18;
   ctx.fill();
   ctx.shadowBlur = 0;
+  ctx.fillStyle = tint(GATEWAY_COLOR, 0.12);
+  ctx.fill();
   ctx.strokeStyle = GATEWAY_COLOR;
   ctx.lineWidth = 1.5;
   ctx.stroke();
@@ -1009,13 +1130,13 @@ function drawGateway(
   ctx.textBaseline = 'middle';
   ctx.fillText('MaaS Gateway', card.x + 36, card.y + GATEWAY_HEADER_H / 2 + 1);
   ctx.font = font(9);
-  ctx.fillStyle = '#64748b';
+  ctx.fillStyle = '#8a8a8a';
   ctx.textAlign = 'right';
   ctx.fillText('click a step', card.x + card.w - 12, card.y + GATEWAY_HEADER_H / 2 + 1);
   ctx.beginPath();
   ctx.moveTo(card.x + 10, card.y + GATEWAY_HEADER_H);
   ctx.lineTo(card.x + card.w - 10, card.y + GATEWAY_HEADER_H);
-  ctx.strokeStyle = 'rgba(255, 152, 0, 0.35)';
+  ctx.strokeStyle = 'rgba(135, 111, 212, 0.45)';
   ctx.lineWidth = 1;
   ctx.stroke();
 
@@ -1045,26 +1166,35 @@ function drawGateway(
 
     ctx.beginPath();
     ctx.arc(card.x + 20, cy, 9, 0, Math.PI * 2);
-    ctx.fillStyle = glow > 0.05 ? accent : '#334155';
+    ctx.fillStyle = glow > 0.05 ? accent : '#383838';
     ctx.fill();
     drawText(ctx, `${i + 1}`, card.x + 20, cy + 0.5, '#fff', 10, 'bold');
 
+    if (i > 0) {
+      ctx.beginPath();
+      ctx.moveTo(card.x + 12, top + 0.5);
+      ctx.lineTo(card.x + card.w - 12, top + 0.5);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.font = font(12, 'bold');
-    ctx.fillStyle = '#e2e8f0';
+    ctx.fillStyle = '#e0e0e0';
     ctx.fillText(stage.title, card.x + 36, cy - 7);
+    drawInfo(ctx, card.x + 36 + ctx.measureText(stage.title).width + 10, cy - 7);
     ctx.font = font(10);
-    ctx.fillStyle = '#94a3b8';
+    ctx.fillStyle = '#a3a3a3';
     ctx.fillText(stage.detail, card.x + 36, cy + 8);
 
     const { value, label } = counts[stage.key];
     ctx.textAlign = 'right';
     ctx.font = font(12, 'bold');
-    ctx.fillStyle = stage.refuses && value > 0 ? '#f87171' : value > 0 ? '#cbd5e1' : '#475569';
+    ctx.fillStyle = stage.refuses && value > 0 ? '#f56e6e' : value > 0 ? '#c7c7c7' : '#4d4d4d';
     ctx.fillText(formatCount(value), card.x + card.w - 12, cy - 7);
     ctx.font = font(9);
-    ctx.fillStyle = '#64748b';
+    ctx.fillStyle = '#8a8a8a';
     ctx.fillText(label, card.x + card.w - 12, cy + 8);
   });
 }
@@ -1077,7 +1207,7 @@ function splitLimit(text: string): { limit: string; window: string | null } {
 
 /**
  * A subscription tier: its per-user limits once, then its users, each with the models it
- * is currently paused on. Red is MaaS refusing (the tier's token limit), amber is the
+ * is currently paused on. Red is MaaS refusing (the tier's token limit), orange is the
  * provider behind an external model refusing (its own rate limit), which MaaS cannot help.
  */
 function drawBand(ctx: CanvasRenderingContext2D, band: Band, users: UserState[], models: ModelState[], colors: string[]): void {
@@ -1085,8 +1215,10 @@ function drawBand(ctx: CanvasRenderingContext2D, band: Band, users: UserState[],
   ctx.save();
   ctx.beginPath();
   ctx.roundRect(band.x, band.y, band.w, band.h, 10);
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.06)';
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.22)';
+  // A block of the tier's own colour, so Free, Pro and Max read as groups at a glance.
+  const tierColor = colors[band.members[0] ?? -1] ?? '#a3a3a3';
+  ctx.fillStyle = tint(tierColor.length === 7 ? tierColor : '#a3a3a3', 0.08);
+  ctx.strokeStyle = tint(tierColor.length === 7 ? tierColor : '#a3a3a3', 0.35);
   ctx.lineWidth = 1;
   ctx.fill();
   ctx.stroke();
@@ -1116,11 +1248,11 @@ function drawBand(ctx: CanvasRenderingContext2D, band: Band, users: UserState[],
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';
   ctx.font = font(10, 'bold', 'system-ui, sans-serif');
-  ctx.fillStyle = '#94a3b8';
+  ctx.fillStyle = '#a3a3a3';
   ctx.fillText(band.label, band.x + BAND_PAD, headerY);
   ctx.textAlign = 'right';
   ctx.font = font(9, '', 'system-ui, sans-serif');
-  ctx.fillStyle = '#64748b';
+  ctx.fillStyle = '#8a8a8a';
   ctx.fillText(perMinute ? 'tokens/min per user' : 'tokens per user', band.x + band.w - BAND_PAD, headerY);
 
   const colW = (band.w - BAND_PAD * 2) / 2;
@@ -1130,14 +1262,14 @@ function drawBand(ctx: CanvasRenderingContext2D, band: Band, users: UserState[],
     const cy = band.limitsY + slot[k]!.row * LIMIT_ROW_H + LIMIT_ROW_H / 2;
     ctx.textAlign = 'left';
     ctx.font = font(10);
-    // External model names take a tint of the indigo their boxes are drawn in.
-    ctx.fillStyle = c.external ? '#a5b4fc' : '#94a3b8';
+    // External model names a shade lighter than internal ones.
+    ctx.fillStyle = c.external ? '#d2d2d2' : '#a3a3a3';
     ctx.fillText(c.name, cx, cy);
     const p = parsed[k];
     const value = !anyLimits ? '…' : p === null ? '–' : perMinute ? p.limit : c.text!;
     ctx.textAlign = 'right';
     ctx.font = font(10, 'bold');
-    ctx.fillStyle = '#cbd5e1';
+    ctx.fillStyle = '#c7c7c7';
     ctx.fillText(value, cx + colW - 10, cy);
   });
 
@@ -1156,7 +1288,7 @@ function drawBand(ctx: CanvasRenderingContext2D, band: Band, users: UserState[],
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.font = font(nameSize, 'bold');
-    ctx.fillStyle = allBlocked ? '#94a3b8' : '#fff';
+    ctx.fillStyle = allBlocked ? '#a3a3a3' : '#fff';
     const nameX = dotX + r + 8;
     ctx.fillText(user.displayName, nameX, y + 0.5);
 
@@ -1204,7 +1336,7 @@ function drawStatus(
     ctx.closePath();
     ctx.fillStyle = color;
     ctx.fill();
-    ctx.fillStyle = '#0f172a';
+    ctx.fillStyle = '#151515';
     ctx.fillRect(x + 4.4, y - 2, 1.3, 3.5);
     ctx.fillRect(x + 4.4, y + 2.4, 1.3, 1.2);
   }
@@ -1241,7 +1373,7 @@ function drawCaption(
   const ix = x + ctx.measureText(label).width + 8;
   ctx.beginPath();
   ctx.arc(ix, y, 4.5, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.7)';
+  ctx.strokeStyle = 'rgba(163, 163, 163, 0.7)';
   ctx.lineWidth = 1;
   ctx.stroke();
   ctx.font = font(7, 'bold');
@@ -1286,7 +1418,7 @@ function approach(current: number, target: number): number {
 function barTrack(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
   ctx.beginPath();
   ctx.roundRect(x, y, w, h, h / 2);
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.14)';
+  ctx.fillStyle = 'rgba(163, 163, 163, 0.14)';
   ctx.fill();
 }
 

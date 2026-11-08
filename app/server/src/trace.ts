@@ -4,13 +4,13 @@
  * gives them on that model, and what came back (status, serving pod, cache use, timing).
  */
 
-/** How a demo user proves who they are to the gateway, in words for the audience. */
+/**
+ * How a demo user proves who they are, in words for the audience: a credential the
+ * gateway checks. Deliberately not how this demo mints it (ServiceAccount tokens): the
+ * story MaaS tells is self-service API keys, and the mechanism is a distraction on stage.
+ */
 export function describeAuth(user: { serviceAccount?: string; apiKey?: string }): { method: string; identity: string } {
-  if (user.serviceAccount) {
-    const [ns, name] = user.serviceAccount.split('/');
-    return { method: 'Kubernetes ServiceAccount token', identity: `${name} in namespace ${ns}` };
-  }
-  if (user.apiKey) return { method: 'API key', identity: 'an API key issued by MaaS' };
+  if (user.serviceAccount || user.apiKey) return { method: 'credential', identity: 'checked by the gateway' };
   return { method: 'unknown', identity: 'no credentials configured' };
 }
 

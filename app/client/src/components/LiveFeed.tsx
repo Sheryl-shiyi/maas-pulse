@@ -16,7 +16,7 @@ export function LiveFeed({ entries, users = [], models = [] }: LiveFeedProps) {
   const userName = (n: string) => users.find(u => u.name === n)?.displayName ?? n;
   // The same tier colours as the topology, so a feed entry and its dot match.
   const colors = userColors(users);
-  const userColor = (n: string) => colors[users.findIndex(u => u.name === n)] ?? '#42a5f5';
+  const userColor = (n: string) => colors[users.findIndex(u => u.name === n)] ?? '#4394e5';
   const modelName = (n: string) => models.find(m => m.name === n)?.displayName ?? n;
   return (
     <div style={styles.container}>
@@ -87,20 +87,20 @@ function truncate(text: string, maxLen: number): string {
 
 const styles: Record<string, React.CSSProperties> = {
   container: { display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' },
-  title: { fontSize: 14, color: '#94a3b8', padding: '8px 12px', margin: 0, borderBottom: '1px solid #1e293b' },
+  title: { fontSize: 14, color: '#a3a3a3', padding: '8px 12px', margin: 0, borderBottom: '1px solid #1f1f1f' },
   list: { flex: 1, overflow: 'auto', padding: 8 },
-  empty: { color: '#475569', fontSize: 13, textAlign: 'center', padding: 20 },
-  entry: { background: '#131824', borderRadius: 6, padding: 8, marginBottom: 6, fontSize: 12 },
+  empty: { color: '#4d4d4d', fontSize: 13, textAlign: 'center', padding: 20 },
+  entry: { background: '#141414', borderRadius: 6, padding: 8, marginBottom: 6, fontSize: 12 },
   header: { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 },
-  user: { color: '#42a5f5', fontWeight: 600 },
-  arrow: { color: '#475569' },
-  model: { color: '#a78bfa', fontWeight: 600 },
-  latency: { marginLeft: 'auto', color: '#94a3b8', fontSize: 11 },
-  blocked: { marginLeft: 'auto', color: '#f44336', fontWeight: 700, fontSize: 11 },
-  errorBadge: { marginLeft: 'auto', color: '#ff9800', fontWeight: 700, fontSize: 11 },
-  question: { color: '#94a3b8', lineHeight: 1.4 },
-  answer: { color: '#64748b', lineHeight: 1.4, fontStyle: 'italic' },
-  rateLimitMsg: { color: '#f44336', fontWeight: 600, fontSize: 11 },
-  providerMsg: { color: '#f59e0b', fontWeight: 600, fontSize: 11 },
-  served: { color: '#38bdf8', fontSize: 11, marginTop: 2 },
+  user: { color: '#4394e5', fontWeight: 600 },
+  arrow: { color: '#4d4d4d' },
+  model: { color: '#876fd4', fontWeight: 600 },
+  latency: { marginLeft: 'auto', color: '#a3a3a3', fontSize: 11 },
+  blocked: { marginLeft: 'auto', color: '#ee0000', fontWeight: 700, fontSize: 11 },
+  errorBadge: { marginLeft: 'auto', color: '#f5921b', fontWeight: 700, fontSize: 11 },
+  question: { color: '#a3a3a3', lineHeight: 1.4 },
+  answer: { color: '#8a8a8a', lineHeight: 1.4, fontStyle: 'italic' },
+  rateLimitMsg: { color: '#ee0000', fontWeight: 600, fontSize: 11 },
+  providerMsg: { color: '#f8ae54', fontWeight: 600, fontSize: 11 },
+  served: { color: '#f2f2f2', fontSize: 11, marginTop: 2 },
 };

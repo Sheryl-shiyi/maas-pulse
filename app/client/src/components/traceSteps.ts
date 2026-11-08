@@ -58,13 +58,13 @@ export function buildTraceSteps(t: TraceResponse, snapshot: ModelState | undefin
 
   if (r.status === 401) {
     steps.push({ focus: 'gw-auth', tone: 'blocked', title: '① Authenticate: rejected', lines: [
-      `${t.user.method}: not accepted.`,
+      `The credential for ${t.user.displayName} was not accepted.`,
       'The gateway answers 401 at once. Nothing reaches a model.',
     ] });
     return { steps, replicaIdx: null };
   }
   steps.push({ focus: 'gw-auth', title: '① Authenticate: who is calling?', lines: [
-    `${t.user.method}: ${t.user.identity}.`,
+    `Signed in as ${t.user.displayName}: the gateway checks the credential before anything else.`,
     'Valid, so the request goes on. A bad one stops here with 401.',
   ] });
 

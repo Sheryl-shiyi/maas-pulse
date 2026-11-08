@@ -231,8 +231,8 @@ export function OidcView() {
               {burstResult.other > 0 && <div style={{ ...s.burstOther, flex: burstResult.other }} />}
             </div>
             <p style={s.muted}>
-              <b style={{ color: '#10b981' }}>{burstResult.ok}</b> succeeded
-              {' · '}<b style={{ color: '#f59e0b' }}>{burstResult.limited}</b> rate-limited (HTTP 429)
+              <b style={{ color: '#4caf50' }}>{burstResult.ok}</b> succeeded
+              {' · '}<b style={{ color: '#f8ae54' }}>{burstResult.limited}</b> rate-limited (HTTP 429)
               {' · '}{burstResult.other} other
               {' · '}{burstResult.tokens} tokens consumed
             </p>
@@ -244,63 +244,63 @@ export function OidcView() {
 }
 
 const s: Record<string, React.CSSProperties> = {
-  container: { padding: '24px 32px', overflowY: 'auto', height: '100%', background: '#0a0e17', maxWidth: 920, margin: '0 auto' },
+  container: { padding: '24px 32px', overflowY: 'auto', height: '100%', background: '#0a0a0a', maxWidth: 920, margin: '0 auto' },
   heading: { margin: '0 0 4px', fontSize: 22, color: '#e0e0e0', fontWeight: 700 },
-  sub: { color: '#64748b', margin: '0 0 24px', fontSize: 13 },
+  sub: { color: '#8a8a8a', margin: '0 0 24px', fontSize: 13 },
 
   card: {
-    background: '#131824', border: '1px solid #1e293b', borderRadius: 10,
+    background: '#141414', border: '1px solid #1f1f1f', borderRadius: 10,
     padding: '18px 20px', marginBottom: 16,
   },
-  cardDone: { borderLeft: '3px solid #10b981' },
+  cardDone: { borderLeft: '3px solid #4caf50' },
   cardIdle: { opacity: 0.5 },
 
-  step: { fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase' as const, color: '#64748b', marginBottom: 8 },
+  step: { fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase' as const, color: '#8a8a8a', marginBottom: 8 },
   cardTitle: { fontSize: 16, margin: '0 0 10px', color: '#e0e0e0', fontWeight: 600 },
 
   row: { display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 },
-  muted: { color: '#64748b', fontSize: 13, margin: 0 },
-  hint: { color: '#475569', fontSize: 13 },
-  code: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 13, color: '#94a3b8' },
-  codeKey: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 13, color: '#94a3b8', background: '#1e293b', padding: '2px 6px', borderRadius: 4, wordBreak: 'break-all' as const },
+  muted: { color: '#8a8a8a', fontSize: 13, margin: 0 },
+  hint: { color: '#4d4d4d', fontSize: 13 },
+  code: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 13, color: '#a3a3a3' },
+  codeKey: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 13, color: '#a3a3a3', background: '#1f1f1f', padding: '2px 6px', borderRadius: 4, wordBreak: 'break-all' as const },
   copyBtn: {
-    marginLeft: 8, background: '#334155', color: '#94a3b8', border: 'none', borderRadius: 4,
+    marginLeft: 8, background: '#383838', color: '#a3a3a3', border: 'none', borderRadius: 4,
     padding: '2px 8px', fontSize: 11, cursor: 'pointer', verticalAlign: 'middle',
   },
 
   kv: { display: 'grid', gridTemplateColumns: '150px 1fr', gap: '8px 14px', marginTop: 10 },
-  kvLabel: { color: '#64748b', fontSize: 13 },
-  kvValue: { color: '#cbd5e1', fontSize: 14 },
+  kvLabel: { color: '#8a8a8a', fontSize: 13 },
+  kvValue: { color: '#c7c7c7', fontSize: 14 },
 
   pill: {
-    display: 'inline-block', background: '#064e3b', color: '#10b981', borderRadius: 999,
+    display: 'inline-block', background: '#1d3a1f', color: '#4caf50', borderRadius: 999,
     padding: '2px 10px', fontSize: 12, marginRight: 6,
   },
 
   primaryBtn: {
-    background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6,
+    background: '#c7c7c7', color: '#fff', border: 'none', borderRadius: 6,
     padding: '9px 16px', fontSize: 14, cursor: 'pointer', textDecoration: 'none',
     fontWeight: 500, display: 'inline-block',
   },
   ghostBtn: {
-    background: '#1e293b', color: '#cbd5e1', border: '1px solid #334155', borderRadius: 6,
+    background: '#1f1f1f', color: '#c7c7c7', border: '1px solid #383838', borderRadius: 6,
     padding: '9px 16px', fontSize: 14, cursor: 'pointer', textDecoration: 'none',
     display: 'inline-block',
   },
 
   input: {
-    flex: 1, padding: '9px 11px', border: '1px solid #334155', borderRadius: 6,
-    fontSize: 14, background: '#1e293b', color: '#e0e0e0', outline: 'none',
+    flex: 1, padding: '9px 11px', border: '1px solid #383838', borderRadius: 6,
+    fontSize: 14, background: '#1f1f1f', color: '#e0e0e0', outline: 'none',
   },
 
   pre: {
-    background: '#0f1115', color: '#e6e6e6', padding: '12px 14px', borderRadius: 8,
+    background: '#0e0e0e', color: '#e6e6e6', padding: '12px 14px', borderRadius: 8,
     overflowX: 'auto', margin: '10px 0 0', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
     fontSize: 13, whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const,
   },
 
   burstBar: { display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', marginBottom: 8 },
-  burstOk: { background: '#10b981' },
-  burstLim: { background: '#f59e0b' },
-  burstOther: { background: '#64748b' },
+  burstOk: { background: '#4caf50' },
+  burstLim: { background: '#f8ae54' },
+  burstOther: { background: '#8a8a8a' },
 };

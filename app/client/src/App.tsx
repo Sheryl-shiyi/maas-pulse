@@ -422,13 +422,15 @@ export default function App() {
             OIDC
           </button>
         </div>
-        <div style={{ ...styles.connStatus, color: connected ? '#4caf50' : '#f44336' }}>
+        <div style={{ ...styles.connStatus, color: connected ? '#4caf50' : '#ee0000' }}>
           {connected ? 'Connected' : 'Disconnected'}
         </div>
       </div>
 
       {activeTab === 'traffic' ? (
         <>
+          {/* While a trace replays, everything that is not the replay steps back. */}
+          <div style={{ opacity: trace ? 0.3 : 1, transition: 'opacity .35s ease', pointerEvents: trace ? 'none' : 'auto' }}>
           <Controls
             models={modelInfos}
             users={userInfos}
@@ -439,6 +441,7 @@ export default function App() {
             onScene={i => setActiveScene(i)}
             activeScene={activeScene}
           />
+          </div>
           <div style={styles.main}>
             <div style={styles.topologyArea}>
               <Topology users={users} models={models} activeRequests={activeRequests} stats={stats} gatewayFlash={gatewayFlash.current} eppWeights={eppWeights} trace={traceView} />
@@ -449,7 +452,11 @@ export default function App() {
                 />
               )}
               {traceFormOpen && (
-                <TraceForm users={userInfos} models={modelInfos} onTrace={startTrace} onCancel={() => setTraceFormOpen(false)} />
+                <>
+                  {/* A modal: the rest of the page darkens until a user and model are picked. */}
+                  <div style={styles.scrim} onClick={() => setTraceFormOpen(false)} />
+                  <TraceForm users={userInfos} models={modelInfos} onTrace={startTrace} onCancel={() => setTraceFormOpen(false)} />
+                </>
               )}
 
             </div>
@@ -470,8 +477,10 @@ export default function App() {
                   onClose={() => setActiveScene(null)}
                 />
               )}
-              <LiveFeed entries={feed} users={users} models={models} />
-              <MetricsPanel stats={stats} />
+              <div style={{ ...styles.sideRest, opacity: trace ? 0.25 : 1 }}>
+                <LiveFeed entries={feed} users={users} models={models} />
+                <MetricsPanel stats={stats} />
+              </div>
             </div>
           </div>
         </>
@@ -489,16 +498,18 @@ export default function App() {
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  app: { display: 'flex', flexDirection: 'column', height: '100vh', background: '#0a0e17' },
-  tabBar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', background: '#0d1117', borderBottom: '1px solid #1e293b' },
+  app: { display: 'flex', flexDirection: 'column', height: '100vh', background: '#0a0a0a' },
+  tabBar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', background: '#0d1117', borderBottom: '1px solid #1f1f1f' },
   tabGroup: { display: 'flex', gap: 0 },
   tab: {
-    background: 'transparent', color: '#64748b', border: 'none', borderBottom: '2px solid transparent',
+    background: 'transparent', color: '#8a8a8a', border: 'none', borderBottom: '2px solid transparent',
     padding: '10px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
   },
-  tabActive: { color: '#e0e0e0', borderBottom: '2px solid #6366f1' },
+  tabActive: { color: '#e0e0e0', borderBottom: '2px solid #c7c7c7' },
   connStatus: { fontSize: 12, fontWeight: 600 },
   main: { flex: 1, display: 'flex', overflow: 'hidden' },
   topologyArea: { flex: 1, position: 'relative' },
-  sidebar: { width: 320, borderLeft: '1px solid #1e293b', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
+  sidebar: { width: 320, borderLeft: '1px solid #1f1f1f', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
+  sideRest: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'opacity .35s ease' },
+  scrim: { position: 'fixed', inset: 0, zIndex: 20, background: 'rgba(0, 0, 0, 0.6)', backdropFilter: 'blur(2px)' },
 };

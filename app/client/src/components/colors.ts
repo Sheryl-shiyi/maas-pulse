@@ -4,23 +4,23 @@
  * Users used to get a fixed palette that included green, orange and red, the colours the
  * topology also uses for state (healthy, provider limit, refused). pro:user4's red dots
  * read as errors. Tier hues avoid all three, so a particle says which tier sent it and
- * red, amber and green keep one meaning each.
+ * red, amber and green keep one meaning each. All hues are from the Red Hat palette.
  */
 const TIER_PALETTES: Record<string, string[]> = {
-  free: ['#2dd4bf', '#5eead4', '#14b8a6'], // teal
-  pro: ['#60a5fa', '#93c5fd', '#3b82f6'], // blue
-  max: ['#a78bfa', '#c4b5fd', '#8b5cf6'], // violet
+  free: ['#63bdbd', '#9ad8d8', '#37a3a3'], // Red Hat teal
+  pro: ['#4394e5', '#92c5f9', '#2b9af3'], // Red Hat blue
+  max: ['#876fd4', '#b6a6e9', '#d0c5f4'], // Red Hat purple
 };
 
 /** For tiers other deployments may name differently, in order of appearance. */
 const FALLBACK_PALETTES = [
-  ['#22d3ee', '#67e8f9', '#06b6d4'], // cyan
-  ['#f472b6', '#f9a8d4', '#ec4899'], // pink
-  ['#818cf8', '#a5b4fc', '#6366f1'], // indigo
+  ['#ffcc17', '#ffe072', '#dca614'], // Red Hat yellow
+  ['#f8ae54', '#fccb8f', '#f5921b'], // Red Hat orange
+  ['#e0e0e0', '#d2d2d2', '#c7c7c7'], // silver
 ];
 
 /** Users with no tier (the admin): neutral, outside the tier families. */
-const NO_TIER = '#e2e8f0';
+const NO_TIER = '#e0e0e0';
 
 export function userColors(users: { tier?: string }[]): string[] {
   const tierOrder: string[] = [];

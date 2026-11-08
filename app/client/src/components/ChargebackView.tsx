@@ -158,19 +158,19 @@ export function ChargebackView() {
       {/* Overview Cards */}
       {data && (
         <div style={styles.cardGrid}>
-          <div style={{ ...styles.card, borderLeft: '3px solid #10b981' }}>
+          <div style={{ ...styles.card, borderLeft: '3px solid #4caf50' }}>
             <div style={styles.cardValue}>{fmtCost(data.totalCostUsd)}</div>
             <div style={styles.cardLabel}>Total Cost</div>
           </div>
-          <div style={{ ...styles.card, borderLeft: '3px solid #6366f1' }}>
+          <div style={{ ...styles.card, borderLeft: '3px solid #c7c7c7' }}>
             <div style={styles.cardValue}>{fmtTokens(data.totalTokens)}</div>
             <div style={styles.cardLabel}>Total Tokens</div>
           </div>
-          <div style={{ ...styles.card, borderLeft: '3px solid #3b82f6' }}>
+          <div style={{ ...styles.card, borderLeft: '3px solid #2b9af3' }}>
             <div style={styles.cardValue}>{data.totalRequests.toLocaleString()}</div>
             <div style={styles.cardLabel}>Total Requests</div>
           </div>
-          <div style={{ ...styles.card, borderLeft: '3px solid #f43f5e' }}>
+          <div style={{ ...styles.card, borderLeft: '3px solid #ee0000' }}>
             <div style={styles.cardValue}>{data.totalRateLimited.toLocaleString()}</div>
             <div style={styles.cardLabel}>Rate Limited</div>
           </div>
@@ -199,7 +199,7 @@ export function ChargebackView() {
                     <td style={styles.td}>{user}</td>
                     <td style={{ ...styles.td, textAlign: 'right' }}>{fmtTokens(t.tokens)}</td>
                     <td style={{ ...styles.td, textAlign: 'right' }}>{t.requests.toLocaleString()}</td>
-                    <td style={{ ...styles.td, textAlign: 'right', color: '#10b981', fontWeight: 600 }}>{fmtCost(t.costUsd)}</td>
+                    <td style={{ ...styles.td, textAlign: 'right', color: '#4caf50', fontWeight: 600 }}>{fmtCost(t.costUsd)}</td>
                     <td style={{ ...styles.td, textAlign: 'right' }}>
                       <div style={styles.barContainer}>
                         <div style={{ ...styles.bar, width: `${data && data.totalCostUsd > 0 ? (t.costUsd / data.totalCostUsd * 100) : 0}%` }} />
@@ -238,10 +238,10 @@ export function ChargebackView() {
                         </div>
                       </td>
                       <td style={{ ...styles.td, textAlign: 'right' }}>{fmtTokens(t.tokens)}</td>
-                      <td style={{ ...styles.td, textAlign: 'right', color: '#10b981', fontWeight: 600 }}>{fmtCost(t.costUsd)}</td>
+                      <td style={{ ...styles.td, textAlign: 'right', color: '#4caf50', fontWeight: 600 }}>{fmtCost(t.costUsd)}</td>
                       <td style={{ ...styles.td, textAlign: 'right' }}>
                         <div style={styles.barContainer}>
-                          <div style={{ ...styles.bar, width: `${data && data.totalCostUsd > 0 ? (t.costUsd / data.totalCostUsd * 100) : 0}%`, background: '#6366f1' }} />
+                          <div style={{ ...styles.bar, width: `${data && data.totalCostUsd > 0 ? (t.costUsd / data.totalCostUsd * 100) : 0}%`, background: '#c7c7c7' }} />
                           <span style={styles.barLabel}>{data && data.totalCostUsd > 0 ? `${(t.costUsd / data.totalCostUsd * 100).toFixed(0)}%` : '0%'}</span>
                         </div>
                       </td>
@@ -343,8 +343,8 @@ export function ChargebackView() {
                   <td style={styles.td}>{data.modelRates.find(r => r.model === row.model)?.displayName || row.model}</td>
                   <td style={{ ...styles.td, textAlign: 'right' }}>{fmtTokens(row.tokens)}</td>
                   <td style={{ ...styles.td, textAlign: 'right' }}>{row.requests.toLocaleString()}</td>
-                  <td style={{ ...styles.td, textAlign: 'right', color: row.rateLimited > 0 ? '#f43f5e' : undefined }}>{row.rateLimited}</td>
-                  <td style={{ ...styles.td, textAlign: 'right', color: '#10b981', fontWeight: 600 }}>{fmtCost(row.costUsd)}</td>
+                  <td style={{ ...styles.td, textAlign: 'right', color: row.rateLimited > 0 ? '#ee0000' : undefined }}>{row.rateLimited}</td>
+                  <td style={{ ...styles.td, textAlign: 'right', color: '#4caf50', fontWeight: 600 }}>{fmtCost(row.costUsd)}</td>
                 </tr>
               ))}
             </tbody>
@@ -356,45 +356,45 @@ export function ChargebackView() {
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  container: { padding: '24px 32px', overflowY: 'auto', height: '100%', background: '#0a0e17' },
+  container: { padding: '24px 32px', overflowY: 'auto', height: '100%', background: '#0a0a0a' },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 16 },
   title: { margin: 0, fontSize: 22, color: '#e0e0e0', fontWeight: 700 },
-  subtitle: { margin: '4px 0 0', fontSize: 13, color: '#64748b' },
+  subtitle: { margin: '4px 0 0', fontSize: 13, color: '#8a8a8a' },
   controls: { display: 'flex', alignItems: 'center', gap: 12 },
-  timeRanges: { display: 'flex', gap: 2, background: '#1e293b', borderRadius: 6, padding: 2 },
+  timeRanges: { display: 'flex', gap: 2, background: '#1f1f1f', borderRadius: 6, padding: 2 },
   rangeBtn: {
-    background: 'transparent', color: '#94a3b8', border: 'none', borderRadius: 4,
+    background: 'transparent', color: '#a3a3a3', border: 'none', borderRadius: 4,
     padding: '5px 12px', fontSize: 12, cursor: 'pointer', fontWeight: 500,
   },
-  rangeBtnActive: { background: '#334155', color: '#e0e0e0', fontWeight: 600 },
+  rangeBtnActive: { background: '#383838', color: '#e0e0e0', fontWeight: 600 },
   refreshBtn: {
-    background: '#1e293b', color: '#94a3b8', border: '1px solid #334155', borderRadius: 6,
+    background: '#1f1f1f', color: '#a3a3a3', border: '1px solid #383838', borderRadius: 6,
     padding: '5px 14px', fontSize: 12, cursor: 'pointer',
   },
-  error: { background: '#7f1d1d', color: '#fca5a5', padding: '8px 12px', borderRadius: 6, marginBottom: 16, fontSize: 13 },
+  error: { background: '#5f0000', color: '#f9a8a8', padding: '8px 12px', borderRadius: 6, marginBottom: 16, fontSize: 13 },
 
   cardGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 },
-  card: { background: '#131824', borderRadius: 8, padding: '16px 20px' },
+  card: { background: '#141414', borderRadius: 8, padding: '16px 20px' },
   cardValue: { fontSize: 28, fontWeight: 700, color: '#e0e0e0' },
-  cardLabel: { fontSize: 12, color: '#64748b', marginTop: 4 },
+  cardLabel: { fontSize: 12, color: '#8a8a8a', marginTop: 4 },
 
   twoCol: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginBottom: 24 },
-  section: { background: '#131824', borderRadius: 8, padding: 16, marginBottom: 16 },
-  sectionTitle: { margin: '0 0 12px', fontSize: 15, color: '#94a3b8', fontWeight: 600 },
+  section: { background: '#141414', borderRadius: 8, padding: 16, marginBottom: 16 },
+  sectionTitle: { margin: '0 0 12px', fontSize: 15, color: '#a3a3a3', fontWeight: 600 },
 
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
-  th: { textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid #1e293b', color: '#64748b', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.05em' },
-  thClickable: { textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid #1e293b', color: '#64748b', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.05em', cursor: 'pointer' },
-  td: { padding: '8px 10px', borderBottom: '1px solid rgba(30,41,59,0.5)', color: '#cbd5e1' },
+  th: { textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid #1f1f1f', color: '#8a8a8a', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.05em' },
+  thClickable: { textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid #1f1f1f', color: '#8a8a8a', fontSize: 11, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.05em', cursor: 'pointer' },
+  td: { padding: '8px 10px', borderBottom: '1px solid rgba(31,31,31,0.5)', color: '#c7c7c7' },
 
   barContainer: { display: 'flex', alignItems: 'center', gap: 6 },
-  bar: { height: 6, borderRadius: 3, background: '#10b981', minWidth: 2 },
-  barLabel: { fontSize: 11, color: '#64748b', whiteSpace: 'nowrap' },
+  bar: { height: 6, borderRadius: 3, background: '#4caf50', minWidth: 2 },
+  barLabel: { fontSize: 11, color: '#8a8a8a', whiteSpace: 'nowrap' },
 
-  rateHint: { fontSize: 10, color: '#64748b', marginTop: 2 },
-  pricingHint: { fontSize: 12, color: '#64748b', margin: '-4px 0 12px' },
-  rateInput: { width: 70, background: '#1e293b', color: '#e0e0e0', border: '1px solid #334155', borderRadius: 4, padding: '3px 6px', fontSize: 13, textAlign: 'right' as const },
-  editBtn: { background: '#334155', color: '#94a3b8', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 11, cursor: 'pointer' },
-  saveBtn: { background: '#10b981', color: '#fff', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 11, cursor: 'pointer', marginRight: 4 },
-  cancelBtn: { background: '#475569', color: '#e0e0e0', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: 11, cursor: 'pointer' },
+  rateHint: { fontSize: 10, color: '#8a8a8a', marginTop: 2 },
+  pricingHint: { fontSize: 12, color: '#8a8a8a', margin: '-4px 0 12px' },
+  rateInput: { width: 70, background: '#1f1f1f', color: '#e0e0e0', border: '1px solid #383838', borderRadius: 4, padding: '3px 6px', fontSize: 13, textAlign: 'right' as const },
+  editBtn: { background: '#383838', color: '#a3a3a3', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 11, cursor: 'pointer' },
+  saveBtn: { background: '#4caf50', color: '#fff', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 11, cursor: 'pointer', marginRight: 4 },
+  cancelBtn: { background: '#4d4d4d', color: '#e0e0e0', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: 11, cursor: 'pointer' },
 };

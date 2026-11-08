@@ -3,14 +3,18 @@ import assert from 'node:assert/strict';
 import { describeAuth, limitFor, cleanQuestion } from './trace.js';
 
 describe('describeAuth', () => {
-  it('names a ServiceAccount identity the way the audience reads it', () => {
-    assert.deepEqual(describeAuth({ serviceAccount: 'maas-tier-max/user7' }),
-      { method: 'Kubernetes ServiceAccount token', identity: 'user7 in namespace maas-tier-max' });
+  it('calls it a credential, without saying the demo mints ServiceAccount tokens', () => {
+    const d = describeAuth({ serviceAccount: 'maas-tier-max/user7' });
+    assert.equal(d.method, 'credential');
+    assert.ok(!/serviceaccount|namespace|maas-tier/i.test(JSON.stringify(d)));
   });
-  it('falls back to the API key, never printing it', () => {
+  it('describes an API key the same way, never printing it', () => {
     const d = describeAuth({ apiKey: 'sk-oai-secret' });
-    assert.equal(d.method, 'API key');
+    assert.equal(d.method, 'credential');
     assert.ok(!JSON.stringify(d).includes('secret'));
+  });
+  it('says so when a user has no credential at all', () => {
+    assert.equal(describeAuth({}).method, 'unknown');
   });
 });
 
