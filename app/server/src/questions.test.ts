@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPrompt, getQuestionPool } from './questions.js';
+import { buildPrompt, getQuestionPool, newPromptRun } from './questions.js';
 
 /** The preamble is everything before the question marker buildPrompt appends. */
 function preambleOf(prompt: string): string {
@@ -51,5 +51,29 @@ describe('buildPrompt', () => {
     // what matters, since the point is filling KV cache, not exact accounting.
     const chars = preambleOf(buildPrompt('unique-prefix', 1000)).length;
     assert.ok(chars >= 4000 && chars < 4000 + 200, `got ${chars} characters`);
+  });
+});
+
+describe('per-user-prefix', () => {
+  it('gives one user the same document within a run, and other users their own', () => {
+    newPromptRun();
+    const a1 = preambleOf(buildPrompt('per-user-prefix', 800, 'max:user7'));
+    const a2 = preambleOf(buildPrompt('per-user-prefix', 800, 'max:user7'));
+    const b = preambleOf(buildPrompt('per-user-prefix', 800, 'max:user8'));
+    assert.equal(a1, a2);
+    assert.notEqual(a1, b);
+  });
+
+  it('changes every document when a new run starts', () => {
+    newPromptRun();
+    const before = preambleOf(buildPrompt('per-user-prefix', 800, 'max:user7'));
+    newPromptRun();
+    const after = preambleOf(buildPrompt('per-user-prefix', 800, 'max:user7'));
+    assert.notEqual(before, after);
+  });
+
+  it('keeps a given question after the document', () => {
+    const p = buildPrompt('per-user-prefix', 300, 'max:user9', 'What is a KV cache?');
+    assert.ok(p.endsWith('answer: What is a KV cache?'));
   });
 });

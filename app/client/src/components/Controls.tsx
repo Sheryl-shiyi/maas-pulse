@@ -143,6 +143,7 @@ export function Controls({ models, users, trafficRunning, connected, send, onTra
                 <option value="short">Short</option>
                 <option value="shared-prefix">Shared prefix (cache hits)</option>
                 <option value="unique-prefix">Unique prefix (real load)</option>
+                <option value="per-user-prefix">One document per user (sticky routing)</option>
               </select>
             </div>
             <div style={styles.group}>
@@ -211,7 +212,7 @@ function modelChip(m: ModelInfo): string {
 }
 
 const PATTERN_NAMES: Record<TrafficPattern, string> = { concurrent: 'Concurrent', sequential: 'Sequential', random_burst: 'Random burst' };
-const PROMPT_NAMES: Record<PromptShape, string> = { short: 'Short', 'shared-prefix': 'Shared prefix', 'unique-prefix': 'Unique prefix' };
+const PROMPT_NAMES: Record<PromptShape, string> = { short: 'Short', 'shared-prefix': 'Shared prefix', 'unique-prefix': 'Unique prefix', 'per-user-prefix': 'One document per user' };
 
 /** Matches server/src/traffic.ts: what each pattern sends, at the chosen rate. */
 function patternHint(pattern: TrafficPattern, rate: number, users: number): string {
@@ -232,7 +233,9 @@ function promptHint(shape: PromptShape, tokens: number): string {
     case 'short':
       return 'one question from a pool of 50. Cheap; a repeated question is mostly served from the prefix cache.';
     case 'shared-prefix':
-      return `the same ${doc} before every question. Shows cache hits, and llm-d keeping requests on the replica that has it cached.`;
+      return `the same ${doc} before every question. Shows cache hits; once every replica holds it, llm-d simply shares the load.`;
+    case 'per-user-prefix':
+      return `each user's own ${doc}, new for every run. The first question reads it; llm-d sends that user's next ones to the replica holding it.`;
     case 'unique-prefix':
       return `a different ${doc} every time. Nothing to reuse, so it fills GPU memory and queues: use it to trigger autoscaling. It uses up a tier\u2019s token budget fast.`;
   }

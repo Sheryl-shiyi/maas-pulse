@@ -93,12 +93,16 @@ export const SCENES: Scene[] = [
     users: tierIn('max'),
     models: isQwen,
     pattern: 'concurrent',
-    promptShape: 'shared-prefix',
+    // One document per user, not one shared by all: a single shared document is soon
+    // cached on every replica, and then llm-d just balances load (both at 99%, measured
+    // 2026-11-08), which shows nothing about where requests go.
+    promptShape: 'per-user-prefix',
+    promptTokens: 2000,
     rate: 1,
     watch: [
-      'Every prompt starts with the same document: **the replica that already has it cached** answers fastest.',
-      'llm-d keeps sending these to the warm replica, and its **cache hit rate climbs towards 95%**.',
-      'Click llm-d for its scoreboard; **Trace a request** shows the replica it picked.',
+      'Each Max user brings **their own document** (~2,000 tokens): the first question reads it all, the next ones find it in cache.',
+      'llm-d sends **each user to the replica holding their document**: in the Live Feed, each user stays on the same "served by #n".',
+      'Both replicas stay **near 99% cache hits** while sharing the work. Click llm-d for its scoreboard; **Trace a request** shows its pick.',
     ],
   },
   {

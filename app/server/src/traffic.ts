@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { setMaxListeners } from 'events';
 import { broadcast } from './ws.js';
 import { sendInference } from './maas-client.js';
-import { buildPrompt, type PromptShape } from './questions.js';
+import { buildPrompt, newPromptRun, type PromptShape } from './questions.js';
 import type { TrafficConfig } from './types.js';
 
 let running = false;
@@ -13,6 +13,16 @@ let activePromptTokens = 0;
 const pending = new Set<Promise<void>>();
 const rateLimitedUntil = new Map<string, number>();
 const DEFAULT_COOLDOWN_MS = 60_000;
+
+/**
+ * What a traced request sends: while traffic carries documents that can be cached, the
+ * trace carries the same one this user's requests do, so it shows llm-d's real choice
+ * and how much of the prompt came from cache. Otherwise just the question.
+ */
+export function tracePrompt(user: string, question: string): string {
+  if (!running || (activeShape !== 'shared-prefix' && activeShape !== 'per-user-prefix')) return question;
+  return buildPrompt(activeShape, activePromptTokens, user, question);
+}
 
 export function isRunning() {
   return running;
@@ -45,6 +55,7 @@ export async function startTraffic(config: TrafficConfig) {
   skippedForBackpressure = 0;
   activeShape = config.promptShape;
   activePromptTokens = config.promptTokens;
+  newPromptRun();
   abortController = new AbortController();
   setMaxListeners(100, abortController.signal);
 
@@ -140,7 +151,7 @@ async function fireRequest(user: string, model: string, signal: AbortSignal) {
   if (signal.aborted || isModelCoolingDown(user, model)) return;
 
   const requestId = randomUUID();
-  const question = buildPrompt(activeShape, activePromptTokens);
+  const question = buildPrompt(activeShape, activePromptTokens, user);
 
   try {
     broadcast({ type: 'request_start', requestId, user, model, question });

@@ -74,8 +74,13 @@ export function getQuestionPool(): string[] {
  *                   the only shape that produces genuine back-pressure, and therefore
  *                   the only one that can demonstrate autoscaling now that scaling
  *                   reacts to queue depth and KV usage rather than batch occupancy.
+ * - `per-user-prefix` each user's own long preamble, the same for all of that user's
+ *                   requests in one traffic run and new for the next run. With a single
+ *                   shared preamble every replica soon holds it and llm-d just balances
+ *                   load; with one per user, llm-d visibly keeps each user on the replica
+ *                   that cached theirs.
  */
-export type PromptShape = 'short' | 'shared-prefix' | 'unique-prefix';
+export type PromptShape = 'short' | 'shared-prefix' | 'unique-prefix' | 'per-user-prefix';
 
 /** Roughly four characters per token for English prose. */
 const CHARS_PER_TOKEN = 4;
@@ -129,12 +134,27 @@ function buildPreamble(seed: number, approxTokens: number): string {
 /** Fixed seed: every caller gets byte-identical text, so the prefix cache can hit. */
 const SHARED_SEED = 0x5ea5ed;
 let uniqueCounter = 0;
+/** Mixed into per-user seeds; changed by newPromptRun so every traffic run starts cold. */
+let runSalt = 0x1234567;
 
-export function buildPrompt(shape: PromptShape, approxPrefixTokens: number): string {
-  const question = getRandomQuestion();
+/** Start a new traffic run: per-user documents change, so no replica holds them yet. */
+export function newPromptRun(): void {
+  runSalt = (Date.now() ^ (uniqueCounter++ << 20)) >>> 0;
+}
+
+/** FNV-1a: a stable 32-bit number for a user name. */
+function hashName(name: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < name.length; i++) h = Math.imul(h ^ name.charCodeAt(i), 0x01000193);
+  return h >>> 0;
+}
+
+export function buildPrompt(shape: PromptShape, approxPrefixTokens: number, user = '', question = getRandomQuestion()): string {
   if (shape === 'short') return question;
 
-  const seed = shape === 'shared-prefix' ? SHARED_SEED : (Date.now() ^ (uniqueCounter++ << 16)) >>> 0;
+  const seed = shape === 'shared-prefix' ? SHARED_SEED
+    : shape === 'per-user-prefix' ? (hashName(user) ^ runSalt) >>> 0
+    : (Date.now() ^ (uniqueCounter++ << 16)) >>> 0;
   const preamble = buildPreamble(seed, approxPrefixTokens);
   return `${preamble}\n\nGiven the context above, answer: ${question}`;
 }

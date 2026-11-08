@@ -41,7 +41,7 @@ export interface ReplicaStatus {
   outputTokensPerSecond: number;
   status: ModelStatus;
 }
-export type PromptShape = 'short' | 'shared-prefix' | 'unique-prefix';
+export type PromptShape = 'short' | 'shared-prefix' | 'unique-prefix' | 'per-user-prefix';
 export type TrafficPattern = 'concurrent' | 'sequential' | 'random_burst';
 
 export type ServerEvent =

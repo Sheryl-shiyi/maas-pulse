@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { initWebSocket, broadcast, setClientMessageHandler, setClientConnectHandler, sendTo } from './ws.js';
 import { initMaasClients, sendInference } from './maas-client.js';
 import { initPrometheus, startPolling, stopPolling } from './prometheus.js';
-import { startTraffic, stopTraffic, isRunning } from './traffic.js';
+import { startTraffic, stopTraffic, isRunning, tracePrompt } from './traffic.js';
 import { initChargeback, getChargebackData, updateModelRate } from './chargeback.js';
 import { startSubscriptionWatcher, getWatchedRateLimits } from './subscription-watcher.js';
 import { startDeploymentWatcher, getWatchedReplicas } from './deployment-watcher.js';
@@ -135,7 +135,10 @@ app.post('/api/trace', async (req, res) => {
     return;
   }
   const question = cleanQuestion(req.body?.question, getRandomQuestion);
-  const result = await sendInference(user.name, model.name, question);
+  // Our own models get the running scene's document in front of the question; the paid
+  // cloud models never do.
+  const prompt = model.type === 'internal' ? tracePrompt(user.name, question) : question;
+  const result = await sendInference(user.name, model.name, prompt);
   res.json({
     user: { name: user.name, displayName: user.displayName, tier: user.tier ?? null, ...describeAuth(user) },
     model: { name: model.name, displayName: model.displayName, type: model.type },

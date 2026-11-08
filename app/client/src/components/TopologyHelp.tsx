@@ -264,6 +264,10 @@ function readingFor(m: ModelState): string {
     const hit = reps[top]!.cacheHitPercent;
     return `#${top + 1} is warm${hit !== null ? ` (${hit}% cache hits)` : ''} and not queueing, so it wins most requests; the others get prompts nobody has cached.`;
   }
+  const hits = reps.map(r => r.cacheHitPercent);
+  if (hits.every(h => h !== null && h >= 80)) {
+    return `Every replica is warm (${hits.join('% / ')}% cache hits): each keeps the prompts it already holds, and the work is shared.`;
+  }
   return 'Traffic is spread: no replica has a clear cache advantage (long, unique prompts, for example), so load decides.';
 }
 
