@@ -445,6 +445,42 @@ warns if OpenShift AI is older than 3.5.2 or Models-as-a-Service is not enabled 
 DataScienceCluster. Also set `AUTH_SERVICE_TIMEOUT=2s` in the RHCL Subscription's
 `spec.config.env` (the chart does this only when it installs RHCL itself).
 
+**Platform installed some other way (GitOps, another repo)?** Then the dependency chart
+collides with what is there (the MaaS Gateway, the Kuadrant CR, and Keycloak when the
+cluster already logs in through one), so skip it and install only the main chart. Done
+this way on 2026-11-08 for the demo's backup cluster, where MaaS ran through
+`aigateway.modelsAsAService` rather than `kserve.modelsAsService`:
+1. RHCL at 1.4.4 on `stable-1.4` with `AUTH_SERVICE_TIMEOUT=2s`, then check the Authorino
+   serving cert: an RHCL upgrade can drop it. Re-create it with
+   `oc annotate svc authorino-authorino-authorization -n kuadrant-system service.beta.openshift.io/serving-cert-secret-name=authorino-server-cert --overwrite`.
+2. The `maas-default-gateway` must accept routes from the models' namespace (`llm`) and
+   give `istio-proxy` a 2Gi memory limit (the `deployment` key of the ConfigMap in its
+   `spec.infrastructure.parametersRef`).
+3. An OpenShift group `admin` holding the `admin` user: the chart's `admin` subscription is
+   owned by that group. Remove any subscription owned by `system:authenticated`, or every
+   user, the tier ServiceAccounts included, belongs to two subscriptions.
+4. A values file after `all-dependencies.yaml` that turns off what the platform already has:
+   ```yaml
+   keycloak:
+     enabled: false          # never deploy a second Keycloak over the cluster's login
+   oidc:
+     enabled: false          # the OIDC tab needs our Keycloak
+   clusterMonitoring:
+     enabled: false          # when cluster-monitoring-config already exists
+   kuadrant:
+     restart: false          # when the Kuadrant operator is not in kuadrant-system
+   ```
+5. `helm upgrade --install maas-pulse charts/maas-pulse -n default -f charts/maas-pulse/all-dependencies.yaml -f <that file> -f <keys file>`.
+   The keys file is described under Option B below.
+6. Create admin's API key with admin's OpenShift token, then add it to the keys file and
+   upgrade again. The UI does not start until that key's Secret exists.
+   ```bash
+   curl -s -X POST https://maas.<domain>/v1/api-keys -H "Authorization: Bearer $(oc whoami -t)" \
+     -H "Content-Type: application/json" -d '{"name":"maas-pulse-ui-admin"}'
+   ```
+   The key is bound to one subscription when it is created (`"subscription": "admin"` in the
+   answer), so create it after step 3.
+
 **After installing:**
 1. Create admin's MaaS API key: sign in to the OpenShift AI dashboard as `admin` (Keycloak
    `sso` realm), create a key in Gen AI Studio, add `ADMIN_API_KEY="..."` to `.env`, and run

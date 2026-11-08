@@ -296,7 +296,9 @@ hardwareProfiles:
 dashboardConfig:
   genAiStudio: true
   modelAsService: true
-  maasAuthPolicies: true
+  # No maasAuthPolicies: RHOAI 3.5.2 deprecates it, and its CRD refuses to add the key where
+  # it is not already set ("must be removed or left unchanged"), which failed this hook on a
+  # fresh install. A merge patch without it leaves an existing value alone.
   observabilityDashboard: true
 
 modelRegistry:
