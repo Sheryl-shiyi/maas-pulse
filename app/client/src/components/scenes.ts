@@ -20,7 +20,8 @@ export interface Scene {
   promptShape: PromptShape;
   /** Ticks per second (Concurrent: every selected user sends on each tick). */
   rate: number;
-  /** Length of the shared or unique document before each question; default 1,500. */
+  /** The generator's length setting for the document before each question; default 1,500.
+   *  Real prompts are about 0.73× the setting (2000 → ~1,450 tokens); see questions.ts. */
   promptTokens?: number;
   watch: string[];
 }
@@ -74,6 +75,7 @@ export const SCENES: Scene[] = [
     pattern: 'concurrent',
     promptShape: 'unique-prefix',
     rate: 1,
+    // Lengths here are generator settings (real tokens ≈ 0.73×: 2000 → ~1,450).
     // Measured 2026-11-06 on vLLM 0.24, one A10G: ~1,500 tokens kept every request in the
     // batch (KV peaked at 78%, nothing queued) and never triggered; 3,000-4,000 triggered in
     // ~10 s but most requests then hit the 30 s client timeout; ~2,000 triggered in 18 s with
@@ -100,7 +102,7 @@ export const SCENES: Scene[] = [
     promptTokens: 2000,
     rate: 1,
     watch: [
-      'Each Max user brings **their own document** (~2,000 tokens): the first question reads it all, the next ones find it in cache.',
+      'Each Max user brings **their own document** (~1,500 tokens): the first question reads it all, the next ones find it in cache.',
       'llm-d sends **each user to the replica holding their document**: in the Live Feed, each user stays on the same "served by #n".',
       'Both replicas stay **near 99% cache hits** while sharing the work. Click llm-d for its scoreboard; **Trace a request** shows its pick.',
     ],

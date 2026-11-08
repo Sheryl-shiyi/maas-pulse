@@ -227,8 +227,16 @@ function patternHint(pattern: TrafficPattern, rate: number, users: number): stri
   }
 }
 
+/**
+ * The prompt length a setting really produces. The generator counts 4 characters per token,
+ * but its corpus tokenises at about 5.5 on Qwen3 (2000 → ~1,450, measured 2026-11-08).
+ */
+function realTokens(setting: number): number {
+  return Math.round((setting * 4) / 5.5 / 50) * 50;
+}
+
 function promptHint(shape: PromptShape, tokens: number): string {
-  const doc = `~${tokens.toLocaleString()}-token document`;
+  const doc = `~${realTokens(tokens).toLocaleString()}-token document`;
   switch (shape) {
     case 'short':
       return 'one question from a pool of 50. Cheap; a repeated question is mostly served from the prefix cache.';

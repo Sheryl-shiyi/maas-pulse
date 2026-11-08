@@ -519,10 +519,11 @@ running traffic, sets users, models, prompt shape and rate, starts again, and pu
 2. **vLLM: one GPU, many requests**: Max on Qwen3 at 5/s, short prompts; about thirty in
    flight on one GPU, over 1,000 tokens/s, nothing queued. (Max only: Pro users would spend
    their per-minute Qwen3 allowance within half a minute and halve the batch.)
-3. **Autoscaling under real load**: Max on Qwen3 with ~2000-token unique prompts; a queue builds,
+3. **Autoscaling under real load**: Max on Qwen3 with unique prompts of about 1,500 tokens; a queue builds,
    the autoscaler adds a replica and says why. Keep it running until #2 takes its share.
-4. **llm-d: cache-aware routing**: Max on Qwen3 with a shared document; traffic sticks to the
-   warm replica. Needs the second replica from scene 3.
+4. **llm-d: cache-aware routing**: Max on Qwen3, each user with their own document; llm-d keeps
+   each user on the replica that cached theirs (measured: 118 of 118 requests per user on one
+   replica, 98% of prompt tokens from cache). Needs the second replica from scene 3.
 5. **Cloud-hosted APIs and privacy**: Pro and Max on Gemini, GPT and Qwen3; same gateway and
    rules, but these prompts leave the cluster. Uses the paid keys: stop it when done.
 
@@ -554,7 +555,7 @@ the whole Free cohort moves at once.
 
 | Setting | Value |
 |---|---|
-| Prompt | Unique prefix, **~2000 tokens** (scene 3 sets this) |
+| Prompt | Unique prefix, length setting **2000**, about 1,450 real tokens (scene 3 sets this) |
 | Rate | **1/s** |
 | Users | Max tier only (user7-9) |
 
@@ -563,13 +564,17 @@ queue passes 5 within **about 20 seconds**, and the autoscaler adds a replica; 1
 requests timed out. The new pod takes 2-10 minutes (less when the spare node already has
 the images), so start this segment early if you want the second replica on screen.
 
-The prompt length is a narrow band. At ~1500 tokens (enough on vLLM 0.18) every request
+The prompt length is a narrow band. At a setting of 1500 (enough on vLLM 0.18) every request
 now fits in the batch: KV peaks at 78%, nothing queues, and nothing scales. At 3000-4000
-tokens the autoscaler fires in ~10 seconds, but most requests then wait past the client's
+the autoscaler fires in ~10 seconds, but most requests then wait past the client's
 30-second timeout until the second replica is ready.
 
-Max tier only, because a 2000-token prompt exceeds the Free tier's entire per-minute
-allowance in a single request; the others would simply sit at 429 and show nothing.
+Lengths are the generator's setting, which assumes 4 characters per token. Its corpus
+tokenises at about 5.5 on Qwen3, so real prompts are about 0.73× the setting: 2000 gives
+~1,450 tokens (measured 2026-11-08).
+
+Max tier only, because a single long prompt (~1,450 tokens) exceeds the Free tier's entire
+per-minute allowance; the others would simply sit at 429 and show nothing.
 
 **Keep the unique-prefix traffic running once the second replica is Ready** if you want
 to show it taking load. Measured on 2026-11-05: in 60 seconds of unique-prefix traffic on

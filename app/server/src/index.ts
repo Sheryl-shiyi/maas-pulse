@@ -37,7 +37,8 @@ const MAX_RATE_PER_SECOND = 10;
  *
  * Long prompts are the only way to create real back-pressure now that scaling reacts to
  * queue depth and KV cache rather than batch occupancy. They also consume the caller's
- * token budget far faster: at 1500 tokens a single request exceeds the Free tier's
+ * token budget far faster: at 1500 (the setting; ~1,100 real tokens, see CHARS_PER_TOKEN in
+ * questions.ts) a single request exceeds the Free tier's
  * whole 1000/min allowance, so a long-prompt run is a Max-tier or admin exercise unless
  * you want to watch everyone else sit at 429.
  */

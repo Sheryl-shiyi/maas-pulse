@@ -82,7 +82,12 @@ export function getQuestionPool(): string[] {
  */
 export type PromptShape = 'short' | 'shared-prefix' | 'unique-prefix' | 'per-user-prefix';
 
-/** Roughly four characters per token for English prose. */
+/**
+ * Roughly four characters per token for English prose: the setting's unit. This corpus
+ * actually tokenises at about 5.5 characters per token on Qwen3 (measured 2026-11-08: the
+ * 2000 setting gave ~1,450-token prompts), so real prompts are about 0.73× the setting.
+ * Kept as it is because the scenes' prompt lengths were tuned against it.
+ */
 const CHARS_PER_TOKEN = 4;
 
 /**
