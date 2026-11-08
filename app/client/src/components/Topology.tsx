@@ -29,8 +29,13 @@ const EDGE_COLOR = '#383838';
  * small print (captions, limits, gateway details) stays legible on a projector.
  */
 const TEXT_SCALE = 1.15;
+/** The fit-to-height scale of the frame being drawn, so text can keep a floor on screen. */
+let FIT = 1;
+/** Text at or above 9 never ends up smaller than this many pixels on screen. */
+const MIN_SCREEN_PX = 10;
 function font(size: number, weight = '', family = '-apple-system, sans-serif'): string {
-  return `${weight} ${Math.round(size * TEXT_SCALE * 2) / 2}px ${family}`.trim();
+  const px = size >= 9 ? Math.max(size * TEXT_SCALE, MIN_SCREEN_PX / FIT) : size * TEXT_SCALE;
+  return `${weight} ${Math.round(px * 2) / 2}px ${family}`.trim();
 }
 /** Red Hat purple: well apart from llm-d's yellow and from the orange of a busy replica. */
 const GATEWAY_COLOR = '#876fd4';
@@ -89,7 +94,22 @@ interface TopologyProps {
   eppWeights: EppWeights | null;
   /** A request being replayed step by step; the rest of the view dims around it. */
   trace: TraceView | null;
+  /** The running scene's points of interest: ringed, with the models it does not use dimmed. */
+  sceneFocus?: SceneFocus | null;
 }
+
+/** What a scene asks the audience to look at. */
+export interface SceneFocus {
+  /** Clickable parts to ring (help topics: 'gw-limit', 'inflight', 'llmd', ...). */
+  topics: string[];
+  /** A tier band to ring, by name. */
+  tier?: string;
+  /** The models the scene sends to; the others are dimmed. */
+  usesModel: (m: ModelState) => boolean;
+}
+
+/** One gateway row during a trace: how far this request got, and what happened there. */
+interface TraceRow { state: 'todo' | 'current' | 'done' | 'refused'; value: string; label: string }
 
 /** One subscription tier: its shared limits on top, then one compact row per user. */
 interface Band {
@@ -112,7 +132,7 @@ const BOUNDARY_TOP = 30;
 const BOUNDARY_PAD = 14;
 
 /** Height a model box needs below it for the load and cache bars and the speed line. */
-const BARS_H = 64;
+const BARS_H = 72;
 /** The model column's group frames: two-line header, then padding around the boxes. */
 const MODEL_GROUP_HEAD = 30;
 const MODEL_GROUP_PAD = 8;
@@ -121,11 +141,11 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
 }
 
-export function Topology({ users, models, activeRequests, stats, gatewayFlash, eppWeights, trace }: TopologyProps) {
+export function Topology({ users, models, activeRequests, stats, gatewayFlash, eppWeights, trace, sceneFocus }: TopologyProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animRef = useRef<number>(0);
-  const propsRef = useRef({ users, models, activeRequests, stats, gatewayFlash, trace });
-  propsRef.current = { users, models, activeRequests, stats, gatewayFlash, trace };
+  const propsRef = useRef({ users, models, activeRequests, stats, gatewayFlash, trace, sceneFocus });
+  propsRef.current = { users, models, activeRequests, stats, gatewayFlash, trace, sceneFocus };
   /** The replay's dot, gliding from one step's position to the next. */
   const traceDotRef = useRef({ key: '', from: { x: 0, y: 0 }, to: { x: 0, y: 0 }, start: 0 });
   /** Eased bar values per replica, keyed `<model>#<replicaIdx>`, so each one keeps its
@@ -216,20 +236,30 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
     const ctx = canvas.getContext('2d')!;
     let running = true;
 
+    // Only touch the canvas when its size really changes: assigning width or height clears
+    // it, and this runs on every re-render (each request changes users or models) and in
+    // the ResizeObserver's first callback, which comes after the frame is drawn, so an
+    // unconditional resize showed a blank frame many times a second under traffic.
     function resize() {
       const rect = canvas!.parentElement!.getBoundingClientRect();
-      canvas!.width = rect.width * devicePixelRatio;
-      canvas!.height = rect.height * devicePixelRatio;
+      const pw = Math.floor(rect.width * devicePixelRatio);
+      const ph = Math.floor(rect.height * devicePixelRatio);
+      if (canvas!.width === pw && canvas!.height === ph) return;
+      canvas!.width = pw;
+      canvas!.height = ph;
       canvas!.style.width = `${rect.width}px`;
       canvas!.style.height = `${rect.height}px`;
       ctx.scale(devicePixelRatio, devicePixelRatio);
     }
     resize();
-    window.addEventListener('resize', resize);
+    // The container changes height without a window resize when the Manual traffic panel
+    // opens or closes, so watch the container itself.
+    const observer = new ResizeObserver(resize);
+    observer.observe(canvas.parentElement!);
 
     function draw() {
       if (!running) return;
-      const { users, models, activeRequests, stats, gatewayFlash, trace } = propsRef.current;
+      const { users, models, activeRequests, stats, gatewayFlash, trace, sceneFocus } = propsRef.current;
       const cssW = canvas!.width / devicePixelRatio;
       const cssH = canvas!.height / devicePixelRatio;
       const now = performance.now();
@@ -251,6 +281,7 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
       // lay it out on a virtual canvas tall enough for everything, then scale it down.
       // Text then shrinks towards its original size, never below it.
       const fit = Math.min(1, cssH / minHeightFor(users, models, boxes, modelRectH));
+      FIT = fit;
       const w = cssW / fit;
       const h = cssH / fit;
       const layout = getLayout(w, h);
@@ -317,9 +348,15 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
 
       // Edges: every user into the gateway's left side, the gateway's right side out to
       // every model replica.
-      for (const uPos of layout.userPositions) {
-        drawCurve(ctx, uPos.anchorX, uPos.y, layout.entry.x, layout.entry.y, EDGE_COLOR);
-      }
+      layout.userPositions.forEach((uPos, i) => {
+        if (users[i] && outOfEveryModel(users[i]!, models)) {
+          ctx.save(); ctx.setLineDash([6, 5]); ctx.globalAlpha = 0.6;
+          drawCurve(ctx, uPos.anchorX, uPos.y, layout.entry.x, layout.entry.y, BLOCKED_COLOR);
+          ctx.restore();
+        } else {
+          drawCurve(ctx, uPos.anchorX, uPos.y, layout.entry.x, layout.entry.y, EDGE_COLOR);
+        }
+      });
       if (llmdIn) drawCurve(ctx, layout.exit.x, layout.exit.y, llmdIn.x, llmdIn.y, EDGE_COLOR);
       for (const box of boxes) {
         const from = isInternal(box.modelIdx) && llmdOut ? llmdOut : layout.exit;
@@ -429,7 +466,7 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
         for (const id of routedRef.current.keys()) if (!live.has(id)) routedRef.current.delete(id);
       }
 
-      drawLeavesMarker(ctx, crossings, leaving);
+      drawLeavesMarker(ctx, crossings, leaving, layout.gateway);
       drawGateway(ctx, layout.gateway, layout.stageH, stats, gatewayFlash, now, regions);
       if (llmd) {
         // Glows briefly each time the gateway routes a request onward.
@@ -517,29 +554,34 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
             const barY = box.y + modelRectH / 2 + 6;
             drawLoadBar(ctx, barX, barY, modelRectW, eased.running, eased.queued, statusColor);
             const queued = stat.queuedRequests;
-            drawCaption(ctx, barX, barY + 16, modelRectW, `In flight (of ${LOAD_BAR_SCALE})`,
+            drawCaption(ctx, barX, barY + 18, modelRectW, `In flight (of ${LOAD_BAR_SCALE})`,
               queued > 0 ? `${stat.runningRequests} + ${queued} queued` : `${stat.runningRequests} running`,
               queued > 0 ? QUEUE_COLOR : CAPTION_COLOR);
-            if (!again) regions.push({ topic: 'inflight', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: { x: barX, y: barY - 2, w: modelRectW, h: 24 } });
-            const cacheY = barY + 25;
+            if (!again) regions.push({ topic: 'inflight', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: { x: barX, y: barY - 2, w: modelRectW, h: 27 } });
+            const cacheY = barY + 29;
             drawCacheBar(ctx, barX, cacheY, modelRectW, eased.cache, stat.cacheHitPercent === null);
             // "off" when this vLLM does not prefix-cache at all (Nemotron, a hybrid Mamba
             // model), which is different from "idle": no recent traffic to measure.
-            drawCaption(ctx, barX, cacheY + 13, modelRectW, 'Cache hit rate',
+            drawCaption(ctx, barX, cacheY + 15, modelRectW, 'Cache hit rate',
               stat.prefixCaching === false ? 'off'
                 : stat.cacheHitPercent === null ? 'idle' : `${stat.cacheHitPercent}%`,
               CAPTION_COLOR);
-            if (!again) regions.push({ topic: 'cache', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: { x: barX, y: cacheY - 3, w: modelRectW, h: 23 } });
+            if (!again) regions.push({ topic: 'cache', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: { x: barX, y: cacheY - 3, w: modelRectW, h: 26 } });
             // How fast it answers: the wait for the first token on the left (queueing and
             // prompt reading both show up here), all its answer tokens per second on the
             // right (batching shows up here). No bar: these have no natural maximum.
-            const speedY = cacheY + 27;
+            const speedY = cacheY + 31;
             drawSpeed(ctx, barX, speedY, modelRectW, stat.firstTokenSeconds, stat.outputTokensPerSecond);
-            if (!again) regions.push({ topic: 'speed', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: { x: barX, y: speedY - 7, w: modelRectW, h: 14 } });
+            if (!again) regions.push({ topic: 'speed', modelIdx: box.modelIdx, replicaIdx: box.replicaIdx, rect: { x: barX, y: speedY - 8, w: modelRectW, h: 16 } });
           }
         }
       };
-      for (const box of boxes) drawBox(box);
+      for (const box of boxes) {
+        const dim = !trace && sceneFocus && !sceneFocus.usesModel(models[box.modelIdx]!);
+        if (dim) { ctx.save(); ctx.globalAlpha = 0.38; }
+        drawBox(box);
+        if (dim) ctx.restore();
+      }
 
       // "Trace a request": dim everything, then light this request's path and the part
       // of the stack the replay is at, with a dot gliding from step to step.
@@ -583,10 +625,10 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
             const d = doorOf(target);
             drawCurve(ctx, layout.exit.x, layout.exit.y, d.x, d.y, TRACE_COLOR, 3);
             const cross = firstExit(boundary, layout.exit, d);
-            if (cross) drawLeavesMarker(ctx, [cross], true);
+            if (cross) drawLeavesMarker(ctx, [cross], true, layout.gateway);
           }
 
-          drawGateway(ctx, layout.gateway, layout.stageH, stats, gatewayFlash, now, []);
+          drawGateway(ctx, layout.gateway, layout.stageH, stats, gatewayFlash, now, [], traceRows(trace, models[modelIdx]!));
           const si = stageIdx[trace.focus];
           if (si !== undefined) drawRing(ctx, stageRow(si), trace.tone ? toneColor(trace.tone) : TRACE_COLOR, 8);
           // llm-d lights up only once the request has reached it: one refused at the gateway
@@ -595,7 +637,13 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
             drawLlmd(ctx, llmd, trace.focus === 'llmd');
             if (trace.focus === 'llmd') drawRing(ctx, llmd, TRACE_COLOR, 12);
           }
-          if (internal && reached.has('llmd')) for (const b of modelBoxes) drawBox(b, true);
+          // Once llm-d has chosen, the replicas it did not choose step back.
+          if (internal && reached.has('llmd')) for (const b of modelBoxes) {
+            const other = !!chosen && b !== chosen;
+            if (other) { ctx.save(); ctx.globalAlpha = 0.3; }
+            drawBox(b, true);
+            if (other) ctx.restore();
+          }
           if (!internal && target && reached.has('external')) drawBox(target, true);
           if (target && (trace.focus === 'replica' || trace.focus === 'external' || (trace.focus === 'llmd' && chosen))) {
             drawRing(ctx, { x: target.x - modelRectW / 2 - 5, y: target.y - modelRectH / 2 - 5, w: modelRectW + 10, h: modelRectH + 10 },
@@ -614,6 +662,19 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
             ctx.fillText(users[userIdx]!.displayName, band.x + band.pad + r * 2 + 8, y + 0.5);
             if (trace.focus === 'user' || trace.focus === 'answer') {
               drawRing(ctx, { x: band.x + 3, y: y - band.rowH / 2, w: band.w - 6, h: band.rowH }, TRACE_COLOR, 8);
+            }
+          }
+
+          // The step's headline next to the part it is about, so the audience reads it where
+          // they are looking (the details stay in the sidebar caption).
+          if (trace.title) {
+            const accent = trace.tone ? toneColor(trace.tone) : '#ffffff';
+            if (si !== undefined) { const r = stageRow(si); drawCallout(ctx, trace.title, layout.gateway.x + layout.gateway.w + 16, r.y + r.h / 2, 'right', accent, w); }
+            else if (trace.focus === 'llmd' && llmd) drawCallout(ctx, trace.title, llmd.x + llmd.w / 2, llmd.y + llmd.h + 22, 'below', accent, w);
+            else if ((trace.focus === 'replica' || trace.focus === 'external') && target) drawCallout(ctx, trace.title, target.x - modelRectW / 2 - 16, target.y, 'left', accent, w);
+            else if (band) {
+              const n = band.members.indexOf(userIdx);
+              drawCallout(ctx, trace.title, band.x + band.w + 16, band.firstRowY + band.rowH * n, 'right', accent, w);
             }
           }
 
@@ -636,6 +697,21 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
 
       // What can be clicked: an outline on whatever is under the pointer, and one line
       // under the gateway for the audience, who cannot see the pointer.
+      if (!trace && sceneFocus) {
+        const a = 0.55 + 0.45 * Math.sin(now / 350);
+        const ring = `rgba(255, 255, 255, ${a.toFixed(2)})`;
+        for (const g of regions) {
+          if (!sceneFocus.topics.includes(g.topic)) continue;
+          if (g.modelIdx >= 0 && !sceneFocus.usesModel(models[g.modelIdx]!)) continue;
+          // The rows under a replica sit close together: pad those rings by 1 px vertically, not 4.
+          const py = g.rect.h < 30 ? 1 : 4;
+          drawRing(ctx, { x: g.rect.x - 4, y: g.rect.y - py, w: g.rect.w + 8, h: g.rect.h + 2 * py }, ring, 9);
+        }
+        if (sceneFocus.tier) {
+          const band = layout.bands.find(b => b.label.toLowerCase().includes(sceneFocus.tier!));
+          if (band) drawRing(ctx, { x: band.x - 4, y: band.y - 4, w: band.w + 8, h: band.h + 8 }, ring, 12);
+        }
+      }
       if (!trace) {
         const hp = hoverRef.current;
         const hit = hp && regions.find(g => hp.x / fit >= g.rect.x && hp.x / fit <= g.rect.x + g.rect.w && hp.y / fit >= g.rect.y && hp.y / fit <= g.rect.y + g.rect.h);
@@ -653,11 +729,11 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
         const g = layout.gateway;
         if (g.y + g.h + 26 < cssH / fit) {
           ctx.save();
-          ctx.font = font(10);
+          ctx.font = font(11);
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillStyle = '#8a8a8a';
-          const a = 'Click a gateway step, a card or any', b = 'for what it does', gap = 18;
+          const a = 'Click any step, card or', b = 'for details', gap = 18;
           const wa = ctx.measureText(a).width, wb = ctx.measureText(b).width, y = g.y + g.h + 22;
           const x0 = g.x + g.w / 2 - (wa + gap + wb) / 2;
           ctx.textAlign = 'left';
@@ -680,7 +756,7 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
     return () => {
       running = false;
       cancelAnimationFrame(animRef.current);
-      window.removeEventListener('resize', resize);
+      observer.disconnect();
     };
   }, [getLayout]);
 
@@ -866,10 +942,10 @@ function drawBoundary(ctx: CanvasRenderingContext2D, poly: Pt[]): void {
   const tx = corner.x + 12 + logoW + 9;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.font = font(10, 'bold', 'system-ui, sans-serif');
+  ctx.font = font(11, 'bold', 'system-ui, sans-serif');
   ctx.fillStyle = '#e0e0e0';
   ctx.fillText('YOUR OPENSHIFT CLUSTER', tx, corner.y + 13);
-  ctx.font = font(9, '', 'system-ui, sans-serif');
+  ctx.font = font(10, '', 'system-ui, sans-serif');
   ctx.fillStyle = '#a3a3a3';
   ctx.fillText('prompts and data stay inside', corner.x + 12, corner.y + 29);
   ctx.restore();
@@ -895,7 +971,7 @@ function firstExit(poly: Pt[], from: Pt, to: Pt): Pt | null {
 }
 
 /** "prompt leaves your network", where the lines to cloud-hosted APIs cross the boundary. */
-function drawLeavesMarker(ctx: CanvasRenderingContext2D, points: Pt[], lit: boolean): void {
+function drawLeavesMarker(ctx: CanvasRenderingContext2D, points: Pt[], lit: boolean, avoid?: Rect): void {
   if (points.length === 0) return;
   ctx.save();
   for (const p of points) {
@@ -908,10 +984,15 @@ function drawLeavesMarker(ctx: CanvasRenderingContext2D, points: Pt[], lit: bool
   }
   const anchor = points.reduce((a, p) => (p.y < a.y ? p : a), points[0]!);
   const text = 'prompt leaves your network';
-  ctx.font = font(9, 'bold');
+  ctx.font = font(10, 'bold');
   const tw = ctx.measureText(text).width;
   const w = tw + 18, h = 19;
-  const x = anchor.x - w - 10, y = anchor.y - h - 6;
+  let x = anchor.x - w - 10;
+  const y = anchor.y - h - 6;
+  // On a wide canvas the crossing sits close to the gateway: slide right, clear of its card.
+  if (avoid && x < avoid.x + avoid.w + 8 && x + w > avoid.x && y < avoid.y + avoid.h && y + h > avoid.y) {
+    x = avoid.x + avoid.w + 8;
+  }
   // Red, like the boundary it sits on: framed at rest, solid and glowing as a prompt crosses.
   ctx.beginPath();
   ctx.roundRect(x, y, w, h, h / 2);
@@ -955,6 +1036,11 @@ function strokeGemini(ctx: CanvasRenderingContext2D, x: number, y: number, w: nu
   ctx.stroke();
   ctx.restore();
 }
+/** Out of quota on every model: the MaaS gateway refuses this user whatever they ask for. */
+function outOfEveryModel(user: UserState, models: ModelState[]): boolean {
+  const byGateway = Object.values(user.rateLimitedModels).filter(v => v === 'gateway').length;
+  return models.length > 0 && byGateway >= models.length;
+}
 /** A small (i): this can be clicked for an explanation. */
 function drawInfo(ctx: CanvasRenderingContext2D, x: number, y: number): void {
   ctx.save();
@@ -987,10 +1073,10 @@ function drawModelGroup(
   ctx.stroke();
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.font = font(10, 'bold', 'system-ui, sans-serif');
+  ctx.font = font(11, 'bold', 'system-ui, sans-serif');
   ctx.fillStyle = external ? '#e0e0e0' : '#a5d6a7';
   ctx.fillText(label, x + 9, y + 11);
-  ctx.font = font(9, '', 'system-ui, sans-serif');
+  ctx.font = font(10, '', 'system-ui, sans-serif');
   ctx.fillStyle = '#8a8a8a';
   ctx.fillText(note, x + 9, y + 23);
   ctx.restore();
@@ -1029,9 +1115,9 @@ function drawCard(ctx: CanvasRenderingContext2D, x: number, y: number, w: number
 /** A small label sitting on a card's top edge, at the right: healthy, busy, overloaded. */
 function drawStatusPill(ctx: CanvasRenderingContext2D, cardRight: number, cardTop: number, text: string, color: string): void {
   ctx.save();
-  ctx.font = font(9, 'bold');
+  ctx.font = font(10, 'bold');
   const w = ctx.measureText(text).width + 12;
-  const h = 15;
+  const h = 17;
   const x = cardRight - w - 10;
   const y = cardTop - h / 2;
   ctx.beginPath();
@@ -1064,6 +1150,9 @@ function drawParticle(ctx: CanvasRenderingContext2D, pos: { x: number; y: number
   ctx.shadowBlur = 12;
   ctx.fill();
   ctx.shadowBlur = 0;
+  ctx.strokeStyle = '#0a0a0a';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
 }
 
 /**
@@ -1107,6 +1196,7 @@ function drawGateway(
   stats: Stats, flash: Record<GatewayStage, number>,
   now: number,
   regions: HelpTarget[],
+  rows?: TraceRow[],
 ): void {
   ctx.save();
   ctx.beginPath();
@@ -1129,7 +1219,7 @@ function drawGateway(
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.fillText('MaaS Gateway', card.x + 36, card.y + GATEWAY_HEADER_H / 2 + 1);
-  ctx.font = font(9);
+  ctx.font = font(10);
   ctx.fillStyle = '#8a8a8a';
   ctx.textAlign = 'right';
   ctx.fillText('click a step', card.x + card.w - 12, card.y + GATEWAY_HEADER_H / 2 + 1);
@@ -1164,11 +1254,16 @@ function drawGateway(
       ctx.fill();
     }
 
+    const row = rows?.[i];
+    ctx.save();
+    if (row?.state === 'todo') ctx.globalAlpha = 0.35;
     ctx.beginPath();
     ctx.arc(card.x + 20, cy, 9, 0, Math.PI * 2);
-    ctx.fillStyle = glow > 0.05 ? accent : '#383838';
+    ctx.fillStyle = row ? (row.state === 'done' ? '#4caf50' : row.state === 'refused' ? BLOCKED_COLOR : row.state === 'current' ? '#f2f2f2' : '#383838')
+      : glow > 0.05 ? accent : '#383838';
     ctx.fill();
-    drawText(ctx, `${i + 1}`, card.x + 20, cy + 0.5, '#fff', 10, 'bold');
+    drawText(ctx, row?.state === 'done' ? '✓' : row?.state === 'refused' ? '✕' : `${i + 1}`, card.x + 20, cy + 0.5,
+      row?.state === 'current' ? '#151515' : '#fff', 10, 'bold');
 
     if (i > 0) {
       ctx.beginPath();
@@ -1184,19 +1279,69 @@ function drawGateway(
     ctx.fillStyle = '#e0e0e0';
     ctx.fillText(stage.title, card.x + 36, cy - 7);
     drawInfo(ctx, card.x + 36 + ctx.measureText(stage.title).width + 10, cy - 7);
-    ctx.font = font(10);
+    ctx.font = font(11);
     ctx.fillStyle = '#a3a3a3';
     ctx.fillText(stage.detail, card.x + 36, cy + 8);
 
-    const { value, label } = counts[stage.key];
+    // During a trace the right-hand figures are this request's, not the session's.
+    const { value, label } = row ? { value: row.value, label: row.label } as { value: string | number; label: string } : counts[stage.key];
     ctx.textAlign = 'right';
     ctx.font = font(12, 'bold');
-    ctx.fillStyle = stage.refuses && value > 0 ? '#f56e6e' : value > 0 ? '#c7c7c7' : '#4d4d4d';
-    ctx.fillText(formatCount(value), card.x + card.w - 12, cy - 7);
-    ctx.font = font(9);
+    if (row) ctx.fillStyle = row.state === 'refused' ? '#ff6b6b' : row.state === 'done' ? '#7ed67f' : '#f2f2f2';
+    else ctx.fillStyle = stage.refuses && (value as number) > 0 ? '#f56e6e' : (value as number) > 0 ? '#c7c7c7' : '#4d4d4d';
+    ctx.fillText(typeof value === 'number' ? formatCount(value) : value, card.x + card.w - 12, cy - 7);
+    ctx.font = font(10);
     ctx.fillStyle = '#8a8a8a';
     ctx.fillText(label, card.x + card.w - 12, cy + 8);
+    ctx.restore();
   });
+}
+
+/** The gateway rows for one traced request, from how far the replay has got. */
+function traceRows(trace: TraceView, model: ModelState): TraceRow[] {
+  const reached = new Set(trace.reached);
+  const focuses: TraceFocus[][] = [['gw-auth'], ['gw-access'], ['gw-limit'], ['llmd', 'external'], ['gw-meter']];
+  const refusal: Record<number, [string, string]> = { 0: ['401', 'refused'], 1: ['403', 'no access'], 2: ['429', 'over limit'] };
+  const passed: [string, string][] = [['✓', 'signed in'], ['✓', 'allowed'], ['✓', 'within limit'],
+    [model.displayName.split(' ')[0]!, 'routed'], [trace.tokens != null ? formatCount(trace.tokens) : '✓', 'tokens']];
+  return focuses.map((fs, i) => {
+    const current = fs.includes(trace.focus);
+    if (current && trace.tone === 'blocked') return { state: 'refused', value: refusal[i]?.[0] ?? '✕', label: refusal[i]?.[1] ?? 'refused' };
+    const state: TraceRow['state'] = current ? 'current' : fs.some(f => reached.has(f)) ? 'done' : 'todo';
+    if (state === 'todo') return { state, value: '', label: '' };
+    // The meter row counts only once the request has been metered.
+    if (i === 4 && state !== 'done' && !current) return { state, value: '', label: '' };
+    return { state, value: passed[i]![0], label: passed[i]![1] };
+  });
+}
+
+/** A step's headline in a pill beside what it is about: right of, left of, or below a point. */
+function drawCallout(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, side: 'right' | 'left' | 'below', color: string, canvasW: number): void {
+  ctx.save();
+  ctx.font = font(13, 'bold');
+  const tw = Math.min(ctx.measureText(text).width, 420);
+  const w = tw + 24, h = 30;
+  let bx = side === 'right' ? x : side === 'left' ? x - w : x - w / 2;
+  const by = side === 'below' ? y : y - h / 2;
+  bx = Math.max(6, Math.min(bx, canvasW - w - 6));
+  ctx.beginPath();
+  ctx.roundRect(bx, by, w, h, h / 2);
+  ctx.fillStyle = 'rgba(21, 21, 21, 0.96)';
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 16;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  let t = text;
+  while (ctx.measureText(t).width > tw && t.length > 4) t = t.slice(0, -2);
+  if (t !== text) t = t.slice(0, -1) + '…';
+  ctx.fillText(t, bx + 12, by + h / 2 + 0.5);
+  ctx.restore();
 }
 
 /** "800k/1m" → { limit: "800k", window: "1m" }; anything else is shown as it is. */
@@ -1217,8 +1362,10 @@ function drawBand(ctx: CanvasRenderingContext2D, band: Band, users: UserState[],
   ctx.roundRect(band.x, band.y, band.w, band.h, 10);
   // A block of the tier's own colour, so Free, Pro and Max read as groups at a glance.
   const tierColor = colors[band.members[0] ?? -1] ?? '#a3a3a3';
+  // Every member held back by the gateway on some model: the tier is being throttled.
+  const throttled = band.members.length > 0 && band.members.every(i => Object.values(users[i]!.rateLimitedModels).includes('gateway'));
   ctx.fillStyle = tint(tierColor.length === 7 ? tierColor : '#a3a3a3', 0.08);
-  ctx.strokeStyle = tint(tierColor.length === 7 ? tierColor : '#a3a3a3', 0.35);
+  ctx.strokeStyle = throttled ? 'rgba(238, 0, 0, 0.85)' : tint(tierColor.length === 7 ? tierColor : '#a3a3a3', 0.35);
   ctx.lineWidth = 1;
   ctx.fill();
   ctx.stroke();
@@ -1247,11 +1394,11 @@ function drawBand(ctx: CanvasRenderingContext2D, band: Band, users: UserState[],
   const headerY = band.y + BAND_PAD + BAND_HEADER_H / 2 - 1;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';
-  ctx.font = font(10, 'bold', 'system-ui, sans-serif');
+  ctx.font = font(11, 'bold', 'system-ui, sans-serif');
   ctx.fillStyle = '#a3a3a3';
   ctx.fillText(band.label, band.x + BAND_PAD, headerY);
   ctx.textAlign = 'right';
-  ctx.font = font(9, '', 'system-ui, sans-serif');
+  ctx.font = font(10, '', 'system-ui, sans-serif');
   ctx.fillStyle = '#8a8a8a';
   ctx.fillText(perMinute ? 'tokens/min per user' : 'tokens per user', band.x + band.w - BAND_PAD, headerY);
 
@@ -1261,14 +1408,14 @@ function drawBand(ctx: CanvasRenderingContext2D, band: Band, users: UserState[],
     const cx = band.x + BAND_PAD + slot[k]!.col * colW;
     const cy = band.limitsY + slot[k]!.row * LIMIT_ROW_H + LIMIT_ROW_H / 2;
     ctx.textAlign = 'left';
-    ctx.font = font(10);
+    ctx.font = font(11);
     // External model names a shade lighter than internal ones.
     ctx.fillStyle = c.external ? '#d2d2d2' : '#a3a3a3';
     ctx.fillText(c.name, cx, cy);
     const p = parsed[k];
     const value = !anyLimits ? '…' : p === null ? '–' : perMinute ? p.limit : c.text!;
     ctx.textAlign = 'right';
-    ctx.font = font(10, 'bold');
+    ctx.font = font(11, 'bold');
     ctx.fillStyle = '#c7c7c7';
     ctx.fillText(value, cx + colW - 10, cy);
   });
@@ -1281,7 +1428,8 @@ function drawBand(ctx: CanvasRenderingContext2D, band: Band, users: UserState[],
     const paused = Object.entries(user.rateLimitedModels);
     const byGateway = paused.filter(([, by]) => by === 'gateway').map(([m]) => m);
     const byProvider = paused.filter(([, by]) => by === 'provider').map(([m]) => m);
-    const allBlocked = models.length > 0 && byGateway.length >= models.length;
+    // Grey only when this user is out of quota on every model, not on some of them.
+    const allBlocked = outOfEveryModel(user, models);
 
     const dotX = band.x + BAND_PAD + r;
     drawCircle(ctx, dotX, y, r, allBlocked ? RATE_LIMITED_COLOR : colors[i]!);
@@ -1295,10 +1443,17 @@ function drawBand(ctx: CanvasRenderingContext2D, band: Band, users: UserState[],
     let x = nameX + ctx.measureText(user.displayName).width + 10;
     const right = band.x + band.w - BAND_PAD;
     if (byGateway.length > 0) {
+      // Short enough that the countdown always fits in the narrow band.
       const names = allBlocked ? 'all models'
-        : byGateway.length > 2 ? `${byGateway.length} models`
-        : byGateway.map(m => getModelShortName(m, models)).join(', ');
-      x = drawStatus(ctx, x, y, right, names, BLOCKED_COLOR, 'blocked');
+        : byGateway.length > 1 ? `${byGateway.length} models`
+        : getModelShortName(byGateway[0]!, models);
+      // How long until the generator tries again, so a pause stays visible after the
+      // red bounce is over.
+      const left = Math.max(0, ...byGateway.map(m => (user.pausedUntil?.[m] ?? 0) - Date.now()));
+      const secs = Math.ceil(left / 1000);
+      // The countdown first: if the band is too narrow for the rest, it is the part kept.
+      const clock = secs > 0 ? `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')} · ` : '';
+      x = drawStatus(ctx, x, y, right, clock + names, BLOCKED_COLOR, 'blocked');
     }
     for (const m of byProvider) {
       const p = providerOf(m);
@@ -1340,7 +1495,7 @@ function drawStatus(
     ctx.fillRect(x + 4.4, y - 2, 1.3, 3.5);
     ctx.fillRect(x + 4.4, y + 2.4, 1.3, 1.2);
   }
-  ctx.font = font(10, 'bold');
+  ctx.font = font(11, 'bold');
   ctx.fillStyle = color;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
@@ -1365,22 +1520,23 @@ function drawCaption(
   x: number, y: number, w: number,
   label: string, value: string, valueColor: string,
 ): void {
-  ctx.font = font(9);
+  ctx.font = font(11);
   ctx.textBaseline = 'middle';
   ctx.fillStyle = CAPTION_COLOR;
   ctx.textAlign = 'left';
   ctx.fillText(label, x, y);
-  const ix = x + ctx.measureText(label).width + 8;
+  const ix = x + ctx.measureText(label).width + 9;
   ctx.beginPath();
-  ctx.arc(ix, y, 4.5, 0, Math.PI * 2);
+  ctx.arc(ix, y, 5, 0, Math.PI * 2);
   ctx.strokeStyle = 'rgba(163, 163, 163, 0.7)';
   ctx.lineWidth = 1;
   ctx.stroke();
-  ctx.font = font(7, 'bold');
+  ctx.font = font(8, 'bold');
   ctx.textAlign = 'center';
   ctx.fillText('i', ix, y + 0.5);
-  ctx.font = font(9, 'bold');
-  ctx.fillStyle = valueColor;
+  // The reading is what the audience is asked to watch: white and bold, not caption grey.
+  ctx.font = font(11, 'bold');
+  ctx.fillStyle = valueColor === CAPTION_COLOR ? '#f2f2f2' : valueColor;
   ctx.textAlign = 'right';
   ctx.fillText(value, x + w, y);
 }
@@ -1401,10 +1557,10 @@ function drawSpeed(
   drawCaption(ctx, x, y, w, 'First token', `${tokensPerSecond.toLocaleString()} tok/s`, CAPTION_COLOR);
   // The first-token reading sits just after the (i), so the right edge stays free
   // for the throughput.
-  ctx.font = font(9);
-  const after = x + ctx.measureText('First token').width + 16;
-  ctx.font = font(9, 'bold');
-  ctx.fillStyle = CAPTION_COLOR;
+  ctx.font = font(11);
+  const after = x + ctx.measureText('First token').width + 18;
+  ctx.font = font(11, 'bold');
+  ctx.fillStyle = '#f2f2f2';
   ctx.textAlign = 'left';
   ctx.fillText(formatSeconds(firstToken), after, y);
 }

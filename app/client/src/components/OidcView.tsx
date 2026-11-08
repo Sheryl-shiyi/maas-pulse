@@ -278,7 +278,7 @@ const s: Record<string, React.CSSProperties> = {
   },
 
   primaryBtn: {
-    background: '#c7c7c7', color: '#fff', border: 'none', borderRadius: 6,
+    background: '#f2f2f2', color: '#151515', border: 'none', borderRadius: 6,
     padding: '9px 16px', fontSize: 14, cursor: 'pointer', textDecoration: 'none',
     fontWeight: 500, display: 'inline-block',
   },

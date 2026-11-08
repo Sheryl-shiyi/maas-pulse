@@ -49,7 +49,8 @@ export type ServerEvent =
   | { type: 'request_start'; requestId: string; user: string; model: string; question: string }
   | { type: 'request_complete'; requestId: string; user: string; model: string; latencyMs: number; tokensUsed: number; answer: string; upstream?: string; promptTokens?: number; cachedTokens?: number }
   /** `source`: the MaaS gateway's own limit, or the external provider's own rate limit. */
-  | { type: 'rate_limited'; requestId: string; user: string; model: string; source?: LimitSource; message?: string }
+  /** pauseMs: how long the generator now holds this user off this model. */
+  | { type: 'rate_limited'; requestId: string; user: string; model: string; source?: LimitSource; message?: string; pauseMs?: number }
   | { type: 'request_error'; requestId: string; user: string; model: string; error: string; status?: number }
   | { type: 'model_status'; model: string; runningRequests: number; queuedRequests: number; latencyP95Ms: number; kvCachePercent: number; status: ModelStatus; replicas: ReplicaStatus[] }
   | { type: 'rate_limit_reset'; user: string; model: string }
@@ -153,6 +154,8 @@ export interface UserState {
   rateLimits: Record<string, string>;
   /** Models this user is paused on, and who imposed the pause. */
   rateLimitedModels: Record<string, LimitSource>;
+  /** When each of those pauses ends (this browser's clock), for a countdown. */
+  pausedUntil: Record<string, number>;
   activeRequests: number;
 }
 

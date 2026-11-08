@@ -1,3 +1,4 @@
+import { plainText } from './plain';
 import type { FeedEntry } from '../types';
 import { providerOf } from './providerLogos';
 import { userColors } from './colors';
@@ -44,7 +45,7 @@ export function LiveFeed({ entries, users = [], models = [] }: LiveFeedProps) {
             {/* A request already in flight when this page opened has no question. */}
             {entry.question && <div style={styles.question}>Q: {truncate(entry.question, 70)}</div>}
             {entry.answer && (
-              <div style={styles.answer}>A: {truncate(entry.answer, 80)}</div>
+              <div style={styles.answer}>A: {truncate(plainText(entry.answer), 80)}</div>
             )}
             {entry.servedBy && (
               <div style={styles.served}>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import type { ModelInfo } from '../types';
 
 interface ChargebackRow {
   user: string;
@@ -36,7 +37,7 @@ const TIME_RANGES = [
   { value: 'all', label: 'All Time' },
 ];
 
-export function ChargebackView() {
+export function ChargebackView({ models = [] }: { models?: ModelInfo[] }) {
   const [data, setData] = useState<ChargebackData | null>(null);
   const [timeRange, setTimeRange] = useState('24h');
   const [loading, setLoading] = useState(false);
@@ -232,7 +233,7 @@ export function ChargebackView() {
                   return (
                     <tr key={model}>
                       <td style={styles.td}>
-                        <div>{rate?.displayName || model}</div>
+                        <div>{nameOf(model, rate?.displayName, models)}</div>
                         <div style={styles.rateHint}>
                           ${rate ? ((rate.inputPer1M + rate.outputPer1M) / 2).toFixed(3) : '?'}/1M tokens
                         </div>
@@ -270,7 +271,7 @@ export function ChargebackView() {
             <tbody>
               {data.modelRates.map(rate => (
                 <tr key={rate.model}>
-                  <td style={styles.td}>{rate.displayName}</td>
+                  <td style={styles.td}>{nameOf(rate.model, rate.displayName, models)}</td>
                   {editingRate === rate.model ? (
                     <>
                       <td style={{ ...styles.td, textAlign: 'right' }}>
@@ -340,7 +341,7 @@ export function ChargebackView() {
               {sortedRows.map(row => (
                 <tr key={`${row.user}-${row.model}`}>
                   <td style={styles.td}>{row.user}</td>
-                  <td style={styles.td}>{data.modelRates.find(r => r.model === row.model)?.displayName || row.model}</td>
+                  <td style={styles.td}>{nameOf(row.model, data.modelRates.find(r => r.model === row.model)?.displayName, models)}</td>
                   <td style={{ ...styles.td, textAlign: 'right' }}>{fmtTokens(row.tokens)}</td>
                   <td style={{ ...styles.td, textAlign: 'right' }}>{row.requests.toLocaleString()}</td>
                   <td style={{ ...styles.td, textAlign: 'right', color: row.rateLimited > 0 ? '#ee0000' : undefined }}>{row.rateLimited}</td>
@@ -398,3 +399,13 @@ const styles: Record<string, React.CSSProperties> = {
   saveBtn: { background: '#4caf50', color: '#fff', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: 11, cursor: 'pointer', marginRight: 4 },
   cancelBtn: { background: '#4d4d4d', color: '#e0e0e0', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: 11, cursor: 'pointer' },
 };
+
+/**
+ * The name the Traffic tab uses for a model ("Qwen3 8B"), not the metric's raw id
+ * ("qwen3-8b-fp8"): the rate's display name when it is a real one, else the model list.
+ */
+function nameOf(key: string, display: string | undefined, models: ModelInfo[]): string {
+  if (display && display !== key) return display;
+  const m = models.find(x => x.name === key || x.name.endsWith(`/${key}`) || x.name.endsWith(key));
+  return m?.displayName ?? display ?? key;
+}

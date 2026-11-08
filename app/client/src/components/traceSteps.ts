@@ -1,5 +1,6 @@
 import type { ModelState } from '../types';
 import { providerOf } from './providerLogos';
+import { plainText } from './plain';
 
 /** What the BFF returns for one traced request (POST /api/trace). */
 export interface TraceResponse {
@@ -144,7 +145,7 @@ export function buildTraceSteps(t: TraceResponse, snapshot: ModelState | undefin
     `${r.totalTokens ?? '?'} tokens recorded for ${user} on ${model}${tier ? ` (${tier} tier)` : ''}.`,
     'That is what Cost & Chargeback shows.',
   ] });
-  steps.push({ focus: 'answer', title: 'The answer', lines: [`“${truncate(r.answer ?? '', 220)}”`] });
+  steps.push({ focus: 'answer', title: 'The answer', lines: [`“${truncate(plainText(r.answer ?? ''), 220)}”`] });
   return { steps, replicaIdx };
 }
 
@@ -177,4 +178,8 @@ export interface TraceView {
   tone?: 'blocked' | 'provider';
   /** Every focus reached so far, to light the path behind the dot. */
   reached: TraceFocus[];
+  /** The current step's headline, shown beside what it is about. */
+  title?: string;
+  /** This request's metered tokens, for the gateway's last row. */
+  tokens?: number | null;
 }

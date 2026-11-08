@@ -20,7 +20,7 @@ export function SceneCard({ scene, index, total, trafficRunning, onStop, onClose
       <div style={styles.title}>{scene.title}</div>
       <div style={styles.watchLabel}>What to watch</div>
       <ul style={styles.list}>
-        {scene.watch.map((w, i) => <li key={i} style={styles.item}>{w}</li>)}
+        {scene.watch.map((w, i) => <li key={i} style={styles.item}>{boldened(w)}</li>)}
       </ul>
       {trafficRunning && <button style={styles.stop} onClick={onStop}>■ Stop traffic</button>}
     </div>
@@ -43,3 +43,8 @@ const styles: Record<string, React.CSSProperties> = {
   item: { fontSize: 13, color: '#c7c7c7', lineHeight: 1.45, marginBottom: 3 },
   stop: { background: 'transparent', color: '#f56e6e', border: '1px solid #f56e6e', borderRadius: 5, padding: '4px 12px', fontSize: 12, cursor: 'pointer' },
 };
+
+/** "**key words**" in a bullet, bold: the noun to look for on screen. */
+function boldened(text: string): React.ReactNode[] {
+  return text.split(/\*\*(.+?)\*\*/g).map((part, i) => (i % 2 ? <b key={i} style={{ color: '#ffffff' }}>{part}</b> : part));
+}

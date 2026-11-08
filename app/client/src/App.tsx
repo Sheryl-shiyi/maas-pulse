@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useWebSocket } from './hooks/useWebSocket';
 import { Topology } from './components/Topology';
 import { Controls } from './components/Controls';
@@ -10,6 +10,7 @@ import type { ServerEvent, ModelInfo, UserInfo, ModelState, UserState, ActiveReq
 import { ScaleNotices } from './components/ScaleNotices';
 import { TraceForm, TraceCaption } from './components/TracePanel';
 import { SceneCard } from './components/SceneCard';
+import type { SceneFocus } from './components/Topology';
 import { SCENES } from './components/scenes';
 import { buildTraceSteps, type TraceResponse, type TraceStep, type TraceView } from './components/traceSteps';
 
@@ -25,7 +26,7 @@ function initialModelState(info: ModelInfo): ModelState {
 }
 
 function initialUserState(info: UserInfo): UserState {
-  return { name: info.name, displayName: info.displayName, rateLimit: info.rateLimit, tier: info.tier, rateLimits: {}, rateLimitedModels: {}, activeRequests: 0 };
+  return { name: info.name, displayName: info.displayName, rateLimit: info.rateLimit, tier: info.tier, rateLimits: {}, rateLimitedModels: {}, pausedUntil: {}, activeRequests: 0 };
 }
 
 export default function App() {
@@ -60,9 +61,23 @@ export default function App() {
   const [activeScene, setActiveScene] = useState<number | null>(null);
   const [trace, setTrace] = useState<null | {
     status: 'sending' | 'ready' | 'error'; header: string; steps: TraceStep[]; index: number;
-    user: string; model: string; replicaIdx: number | null; error?: string;
+    user: string; model: string; replicaIdx: number | null; error?: string; tokens?: number | null;
   }>(null);
   const latencySamples = useRef<number[]>([]);
+  // Every click leaves a brief expanding ring: on a projector the audience cannot see the
+  // pointer, so without it a scene or a popover just happens.
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      const ring = document.createElement('div');
+      ring.className = 'click-echo';
+      ring.style.left = `${e.clientX}px`;
+      ring.style.top = `${e.clientY}px`;
+      document.body.appendChild(ring);
+      setTimeout(() => ring.remove(), 500);
+    };
+    window.addEventListener('pointerdown', onDown);
+    return () => window.removeEventListener('pointerdown', onDown);
+  }, []);
 
   /** The gateway stopped this request at `stage`: its dot finishes the trip to the
    *  gateway, then bounces back, and the stage lights up when the dot arrives. */
@@ -163,7 +178,9 @@ export default function App() {
         const servingModel = modelsRef.current.find(m => m.name === event.model);
         const servedIdx = servingModel && event.upstream
           ? servingModel.replicaStats.findIndex(r => r.instance === event.upstream) : -1;
-        const cachedFraction = event.promptTokens ? (event.cachedTokens ?? 0) / event.promptTokens : undefined;
+        // Only long prompts earn the cache ring: a short question is nearly always cached,
+        // and a ring on every dot says nothing.
+        const cachedFraction = event.promptTokens && event.promptTokens >= 256 ? (event.cachedTokens ?? 0) / event.promptTokens : undefined;
         setActiveRequests(prev => {
           const next = prev.map(r =>
             r.requestId === event.requestId ? {
@@ -214,6 +231,7 @@ export default function App() {
             u.name === event.user ? {
               ...u,
               rateLimitedModels: { ...u.rateLimitedModels, [event.model]: source },
+              pausedUntil: { ...u.pausedUntil, [event.model]: Date.now() + (event.pauseMs ?? 60_000) },
               activeRequests: Math.max(0, u.activeRequests - 1),
             } : u
           );
@@ -250,7 +268,8 @@ export default function App() {
           const next = prev.map(u => {
             if (u.name !== event.user) return u;
             const { [event.model]: _, ...rest } = u.rateLimitedModels;
-            return { ...u, rateLimitedModels: rest };
+            const { [event.model]: __, ...until } = u.pausedUntil ?? {};
+            return { ...u, rateLimitedModels: rest, pausedUntil: until };
           });
           usersRef.current = next;
           return next;
@@ -385,8 +404,9 @@ export default function App() {
         body: JSON.stringify({ user, model, question }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const { steps, replicaIdx } = buildTraceSteps((await res.json()) as TraceResponse, snapshot);
-      setTrace(t => t && { ...t, status: 'ready', steps, replicaIdx, index: 0 });
+      const response = (await res.json()) as TraceResponse;
+      const { steps, replicaIdx } = buildTraceSteps(response, snapshot);
+      setTrace(t => t && { ...t, status: 'ready', steps, replicaIdx, index: 0, tokens: response.result.totalTokens });
     } catch (e) {
       setTrace(t => t && { ...t, status: 'error', error: e instanceof Error ? e.message : String(e) });
     }
@@ -397,7 +417,13 @@ export default function App() {
     focus: trace.status === 'ready' ? trace.steps[trace.index]?.focus ?? 'user' : 'user',
     tone: trace.status === 'ready' ? trace.steps[trace.index]?.tone : undefined,
     reached: trace.status === 'ready' ? trace.steps.slice(0, trace.index + 1).map(s => s.focus) : ['user'],
+    title: trace.status === 'ready' ? trace.steps[trace.index]?.title : undefined,
+    tokens: trace.tokens,
   } : null;
+  const scene = activeScene !== null ? SCENES[activeScene] : undefined;
+  const sceneFocus: SceneFocus | null = scene
+    ? { topics: scene.focus.topics, tier: scene.focus.tier, usesModel: m => scene.models(m) }
+    : null;
 
   return (
     <div style={styles.app}>
@@ -444,7 +470,8 @@ export default function App() {
           </div>
           <div style={styles.main}>
             <div style={styles.topologyArea}>
-              <Topology users={users} models={models} activeRequests={activeRequests} stats={stats} gatewayFlash={gatewayFlash.current} eppWeights={eppWeights} trace={traceView} />
+              <Topology users={users} models={models} activeRequests={activeRequests} stats={stats} gatewayFlash={gatewayFlash.current} eppWeights={eppWeights} trace={traceView} sceneFocus={sceneFocus} />
+              {!connected && <div style={styles.lostBanner} role="alert">Live connection lost, reconnecting…</div>}
               {!trace && (
                 <ScaleNotices
                   notices={scaleNotices}
@@ -486,7 +513,7 @@ export default function App() {
         </>
       ) : activeTab === 'cost' ? (
         <div style={styles.main}>
-          <ChargebackView />
+          <ChargebackView models={modelInfos} />
         </div>
       ) : (
         <div style={styles.main}>
@@ -512,4 +539,5 @@ const styles: Record<string, React.CSSProperties> = {
   sidebar: { width: 320, borderLeft: '1px solid #1f1f1f', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
   sideRest: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'opacity .35s ease' },
   scrim: { position: 'fixed', inset: 0, zIndex: 20, background: 'rgba(0, 0, 0, 0.6)', backdropFilter: 'blur(2px)' },
+  lostBanner: { position: 'absolute', top: 0, left: 0, right: 0, height: 34, zIndex: 15, background: '#ee0000', color: '#fff', fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' },
 };
