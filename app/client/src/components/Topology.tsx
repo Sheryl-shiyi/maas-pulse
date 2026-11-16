@@ -402,7 +402,7 @@ export function Topology({ users, models, activeRequests, stats, gatewayFlash, e
         if (readyBoxes.length === 0) continue;
         // Send the dot where llm-d actually sends this model's traffic. The response does
         // not say which replica answered, so pick in proportion to the requests each
-        // replica finished in the last minute. Dots used to be shared out evenly, which
+        // replica finished in the last 20 seconds. Dots used to be shared out evenly, which
         // showed a cold new replica taking half the load while it served almost none.
         let replica = routedRef.current.get(req.requestId);
         if (replica === undefined || !readyBoxes.some(b => b.replicaIdx === replica)) {

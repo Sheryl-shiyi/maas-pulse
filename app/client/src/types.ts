@@ -27,7 +27,7 @@ export interface ReplicaStatus {
   prefixCaching: boolean | null;
   /** Tokens of context this replica's KV cache can hold; null when not reported. */
   kvCapacityTokens: number | null;
-  /** Requests this replica finished per second over the last minute: where llm-d
+  /** Requests this replica finished per second over the last 20 s: where llm-d
    *  actually sent traffic, since responses do not name the replica that answered. */
   requestsPerSecond: number;
   /** ip:port, matching the gateway's `x-maas-upstream` for requests this replica served. */

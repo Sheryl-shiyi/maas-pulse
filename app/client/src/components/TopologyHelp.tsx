@@ -101,10 +101,10 @@ function tint(hex: string, a: number): string {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 }
 
-/** "KV cache 1% of room for 74,432 tokens", or just the percentage when the size is unknown. */
+/** "KV cache 1% in use (room for 74,432 tokens)", or just the percentage when the size is unknown. */
 function kvReading(stat: ReplicaStatus): string {
-  const room = stat.kvCapacityTokens ? ` of room for ${stat.kvCapacityTokens.toLocaleString()} tokens` : '';
-  return `KV cache ${stat.kvCachePercent}%${room}`;
+  const room = stat.kvCapacityTokens ? ` (room for ${stat.kvCapacityTokens.toLocaleString()} tokens)` : '';
+  return `KV cache ${stat.kvCachePercent}% in use${room}`;
 }
 
 function modelContent(target: HelpTarget, model: ModelState, stat: ReplicaStatus | undefined): Content {
@@ -116,8 +116,8 @@ function modelContent(target: HelpTarget, model: ModelState, stat: ReplicaStatus
         title: `${name}${replica}: one vLLM server, one GPU`,
         body: [
           <>One <b>vLLM</b> server, the engine of Red Hat AI Inference Server, running <b>{name}</b> on one GPU. OpenShift AI deploys it from an <i>LLMInferenceService</i>; each extra replica is another GPU.</>,
-          <><b>KV cache</b> is the GPU memory vLLM keeps for the requests it is working on: every token of each prompt and of each answer so far. What is left after the model's weights decides how much it can hold. Short questions barely touch it; long documents and long chats fill it.</>,
-          <><b style={{ color: '#4caf50' }}>Green</b> healthy · <b style={{ color: '#f5921b' }}>orange</b> requests waiting or KV cache over 50% · <b style={{ color: '#ee0000' }}>red</b> more than 5 waiting or KV cache over 80%: the autoscaler adds a replica.</>,
+          <>The <b>KV cache</b> holds the attention keys and values vLLM has computed for every token of each prompt and each answer so far, so it never computes them twice. vLLM reserves a fixed pool of GPU memory for it at startup, whatever is left after the model's weights; the percentage on the card is how much of that pool the requests in flight are using. Short questions barely touch it; long documents and long chats fill it.</>,
+          <><b style={{ color: '#4caf50' }}>Green</b> healthy · <b style={{ color: '#f5921b' }}>orange</b> requests waiting or KV cache over 50% in use · <b style={{ color: '#ee0000' }}>red</b> more than 5 waiting or KV cache over 80% in use: the autoscaler adds a replica.</>,
         ],
         now: stat
           ? <>Now: {stat.runningRequests} generating · {stat.queuedRequests} waiting · {kvReading(stat)} · {stat.requestsPerSecond} requests/s served</>
@@ -128,8 +128,8 @@ function modelContent(target: HelpTarget, model: ModelState, stat: ReplicaStatus
         title: 'In flight: requests inside this vLLM server',
         body: [
           <>vLLM generates tokens for many requests together, in one <b>continuous batch</b>. A full batch is the GPU working well, not a problem.</>,
-          <><b>Running</b>: in the batch now. <b style={{ color: '#ee0000' }}>Queued</b> (red): could not start yet, because the GPU is still reading earlier long prompts or its memory for context is full. Either way, that is real pressure.</>,
-          <>Scaled to <b>50</b>, the most the generator ever has waiting for an answer. The autoscaler adds a replica at more than 5 queued or KV cache over 80%, never for running requests alone.</>,
+          <><b>Running</b>: in the batch now. <b style={{ color: '#ee0000' }}>Queued</b> (red): could not start yet, because the GPU is still reading earlier long prompts or its KV cache pool is full. Either way, that is real pressure.</>,
+          <>Scaled to <b>50</b>, the most the generator ever has waiting for an answer. The autoscaler adds a replica at more than 5 queued or KV cache over 80% in use, never for running requests alone.</>,
         ],
         now: stat ? <>Now: {stat.runningRequests} running · {stat.queuedRequests} queued · {kvReading(stat)}</> : undefined,
       };
@@ -137,7 +137,7 @@ function modelContent(target: HelpTarget, model: ModelState, stat: ReplicaStatus
       return {
         title: "Cache hit rate: work vLLM didn't redo",
         body: [
-          <>vLLM keeps each prompt it has read (its <b>KV cache</b>) in GPU memory. A new prompt that starts the same way, such as a shared system prompt or document, reuses it instead of recomputing: a <b>hit</b>. Faster first token, less GPU work.</>,
+          <>vLLM keeps the <b>KV cache</b> of each prompt it has read (its attention keys and values) in GPU memory. A new prompt that starts the same way, such as a shared system prompt or document, reuses it instead of recomputing: a <b>hit</b>. Faster first token, less GPU work.</>,
           <>The bar is the share of prompt tokens served from cache in the last 2 minutes. Each replica has its own cache. A returning dot with a <b style={{ color: '#f2f2f2' }}>white ring</b> was answered mostly from cache.</>,
           <><b>llm-d</b>, the gateway's scheduler, sends a request to the replica likely to have its start cached, and requests nobody has seen to the least recently used one. So a <b>new replica starts low</b>: it gets the uncacheable work, and warms up as it serves.</>,
         ],
@@ -181,7 +181,7 @@ function llmdContent(models: ModelState[], w: EppWeights | null): Content {
   const rules: { label: string; hint: string; weight?: number }[] = [
     { label: 'Queue', hint: 'fewest requests waiting', weight: w?.queue },
     { label: 'Prefix cache', hint: 'already holds the start of this prompt', weight: w?.prefixCache },
-    { label: 'KV cache free', hint: 'most GPU memory left', weight: w?.kvCache },
+    { label: 'KV cache free', hint: 'most room left in its KV cache pool', weight: w?.kvCache },
     { label: 'Cold-replica bonus', hint: "if no one has it cached: the replica idle longest", weight: w?.noHitLru },
   ];
   return {
@@ -200,7 +200,7 @@ function llmdContent(models: ModelState[], w: EppWeights | null): Content {
       </table>,
       ...internal.map(m => <ModelScoreboard key={m.name} model={m} />),
     ],
-    now: <>Share: requests each replica finished in the last minute. The picker does not publish its per-request scores; these are what it looks at.</>,
+    now: <>Share: requests each replica finished in the last 20 seconds. The picker does not publish its per-request scores; these are what it looks at.</>,
   };
 }
 

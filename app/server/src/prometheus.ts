@@ -213,9 +213,11 @@ async function pollModelMetrics(models: ModelInfo[]) {
     query(`rate(vllm:prefix_cache_hits_total[${CACHE_RATE_WINDOW}])`),
     query(`rate(vllm:prefix_cache_queries_total[${CACHE_RATE_WINDOW}])`),
     query('vllm:cache_config_info'),
-    // Requests each replica actually finished in the last minute. The only record of
-    // where llm-d sent traffic: responses do not say which replica answered.
-    query('sum by (pod, model_name) (rate(vllm:request_success_total[1m]))'),
+    // Requests each replica actually finished in the last 20 seconds: where llm-d sent
+    // traffic, for the outbound dots and the scoreboard's share. 20 s, not 1 min, so that
+    // after a scene change (scene 3's even split → scene 4's per-user stickiness) the
+    // screen catches up in about 20 s; vLLM is scraped every 5 s, so that is 4 samples.
+    query('sum by (pod, model_name) (rate(vllm:request_success_total[20s]))'),
   ]);
   // How fast each replica answers: time to the first token, the pace of each answer
   // once it is going, and all the answer tokens the replica produces together.
