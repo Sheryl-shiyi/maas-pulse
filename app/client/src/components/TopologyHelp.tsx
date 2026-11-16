@@ -45,6 +45,11 @@ export function HelpPopover({ target, model, stat, stats, models, eppWeights, co
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // Only the first paragraph shows at first; "More" opens the rest. Closed again whenever
+  // another part is clicked.
+  const [more, setMore] = useState(false);
+  useEffect(() => { setMore(false); }, [target.topic, target.modelIdx, target.replicaIdx]);
+
   const { rect } = target;
   const gateway = target.topic.startsWith('gw-');
   // llm-d's panel holds a table per model, so it is wider than the other explanations.
@@ -72,13 +77,67 @@ export function HelpPopover({ target, model, stat, stats, models, eppWeights, co
         <span style={{ ...styles.title, color: accent.text }}>{content.title}</span>
         <button style={styles.close} onClick={onClose} aria-label="Close">×</button>
       </div>
-      {content.body.map((p, i) => <div key={i} style={styles.p}>{p}</div>)}
+      {/* The live reading first, large: on a projector it is what the audience looks for. */}
+      {(content.metrics || content.note) && (
+        <div style={styles.live}>
+          <div style={styles.liveLabel}>LIVE</div>
+          {content.metrics ? (
+            <div style={{ ...styles.tiles, gridTemplateColumns: `repeat(${content.metrics.length}, minmax(0, 1fr))` }}>
+              {content.metrics.map((m, i) => (
+                <div key={i} style={styles.tile}>
+                  <div style={{ ...styles.tileValue, color: TONE[m.tone ?? 'plain'] }}>{m.value}</div>
+                  <div style={styles.tileLabel}>{m.label}</div>
+                  {m.sub && <div style={styles.tileSub}>{m.sub}</div>}
+                </div>
+              ))}
+            </div>
+          ) : <div style={styles.liveNote}>{content.note}</div>}
+        </div>
+      )}
+      {(content.lead === false || more ? content.body : content.body.slice(0, 1)).map((p, i) => <div key={i} style={styles.p}>{p}</div>)}
+      {content.lead !== false && content.body.length > 1 && (
+        <button style={styles.more} onClick={() => setMore(m => !m)} aria-expanded={more}>
+          {more ? 'Less ▴' : 'More ▾'}
+        </button>
+      )}
       {content.now && <div style={styles.now}>{content.now}</div>}
     </div>
   );
 }
 
-interface Content { title: string; body: React.ReactNode[]; now?: React.ReactNode }
+interface Content {
+  title: string;
+  body: React.ReactNode[];
+  /** The live reading, first: one tile per number, coloured by state like the canvas. */
+  metrics?: Metric[];
+  /** Instead of metrics when there is nothing to measure ("Idle: …"). */
+  note?: React.ReactNode;
+  /** A closing line after everything (llm-d's footnote). */
+  now?: React.ReactNode;
+  /** false: show everything at once (llm-d, whose tables are the live part). */
+  lead?: boolean;
+}
+
+/** One live number: big and bold, its label small underneath. */
+interface Metric { value: string; label: string; sub?: string; tone?: Tone }
+type Tone = 'ok' | 'warn' | 'bad' | 'muted' | 'plain' | 'gateway';
+/** The canvas's state colours: running green, queueing orange then red, zero grey. */
+const TONE: Record<Tone, string> = {
+  ok: '#7ed67f', warn: '#f8ae54', bad: '#ff6b6b', muted: '#8a8a8a', plain: '#f2f2f2', gateway: '#d0c5f4',
+};
+/** Thresholds as in PRESSURE (prometheus.ts): any wait is busy, more than 5 is overloaded. */
+function queueTone(n: number): Tone { return n > 5 ? 'bad' : n > 0 ? 'warn' : 'muted'; }
+function kvTone(pct: number): Tone { return pct > 80 ? 'bad' : pct > 50 ? 'warn' : 'ok'; }
+function kvMetric(stat: ReplicaStatus): Metric {
+  return {
+    value: `${stat.kvCachePercent}%`, label: 'KV cache in use', tone: kvTone(stat.kvCachePercent),
+    sub: stat.kvCapacityTokens ? `of ${stat.kvCapacityTokens.toLocaleString()} tokens` : undefined,
+  };
+}
+/** "N refused since this page opened": red once it is not zero. */
+function counter(n: number, label: string, refuses: boolean): Metric[] {
+  return [{ value: n.toLocaleString(), label: `${label}, since this page opened`, tone: refuses ? (n > 0 ? 'bad' : 'muted') : (n > 0 ? 'gateway' : 'muted') }];
+}
 
 /**
  * Each explanation opens with a block of the colour of what was clicked, as on the
@@ -101,11 +160,6 @@ function tint(hex: string, a: number): string {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 }
 
-/** "KV cache 1% in use (room for 74,432 tokens)", or just the percentage when the size is unknown. */
-function kvReading(stat: ReplicaStatus): string {
-  const room = stat.kvCapacityTokens ? ` (room for ${stat.kvCapacityTokens.toLocaleString()} tokens)` : '';
-  return `KV cache ${stat.kvCachePercent}% in use${room}`;
-}
 
 function modelContent(target: HelpTarget, model: ModelState, stat: ReplicaStatus | undefined): Content {
   const name = model.displayName;
@@ -119,9 +173,12 @@ function modelContent(target: HelpTarget, model: ModelState, stat: ReplicaStatus
           <>The <b>KV cache</b> holds the attention keys and values vLLM has computed for every token of each prompt and each answer so far, so it never computes them twice. vLLM reserves a fixed pool of GPU memory for it at startup, whatever is left after the model's weights; the percentage on the card is how much of that pool the requests in flight are using. Short questions barely touch it; long documents and long chats fill it.</>,
           <><b style={{ color: '#4caf50' }}>Green</b> healthy · <b style={{ color: '#f5921b' }}>orange</b> requests waiting or KV cache over 50% in use · <b style={{ color: '#ee0000' }}>red</b> more than 5 waiting or KV cache over 80% in use: the autoscaler adds a replica.</>,
         ],
-        now: stat
-          ? <>Now: {stat.runningRequests} generating · {stat.queuedRequests} waiting · {kvReading(stat)} · {stat.requestsPerSecond} requests/s served</>
-          : <>Waiting for this replica's first metrics.</>,
+        ...(stat ? { metrics: [
+          { value: `${stat.runningRequests}`, label: 'generating', tone: stat.runningRequests > 0 ? 'ok' : 'muted' },
+          { value: `${stat.queuedRequests}`, label: 'waiting', tone: queueTone(stat.queuedRequests) },
+          kvMetric(stat),
+          { value: `${stat.requestsPerSecond}`, label: 'requests/s served', tone: 'plain' },
+        ] as Metric[] } : { note: <>Waiting for this replica's first metrics.</> }),
       };
     case 'inflight':
       return {
@@ -131,7 +188,11 @@ function modelContent(target: HelpTarget, model: ModelState, stat: ReplicaStatus
           <><b>Running</b>: in the batch now. <b style={{ color: '#ee0000' }}>Queued</b> (red): could not start yet, because the GPU is still reading earlier long prompts or its KV cache pool is full. Either way, that is real pressure.</>,
           <>Scaled to <b>50</b>, the most the generator ever has waiting for an answer. The autoscaler adds a replica at more than 5 queued or KV cache over 80% in use, never for running requests alone.</>,
         ],
-        now: stat ? <>Now: {stat.runningRequests} running · {stat.queuedRequests} queued · {kvReading(stat)}</> : undefined,
+        metrics: stat ? [
+          { value: `${stat.runningRequests}`, label: 'running', tone: stat.runningRequests > 0 ? 'ok' : 'muted' },
+          { value: `${stat.queuedRequests}`, label: 'queued', tone: queueTone(stat.queuedRequests) },
+          kvMetric(stat),
+        ] : undefined,
       };
     case 'cache':
       return {
@@ -141,11 +202,11 @@ function modelContent(target: HelpTarget, model: ModelState, stat: ReplicaStatus
           <>The bar is the share of prompt tokens served from cache in the last 2 minutes. Each replica has its own cache. A returning dot with a <b style={{ color: '#f2f2f2' }}>white ring</b> was answered mostly from cache.</>,
           <><b>llm-d</b>, the gateway's scheduler, sends a request to the replica likely to have its start cached, and requests nobody has seen to the least recently used one. So a <b>new replica starts low</b>: it gets the uncacheable work, and warms up as it serves.</>,
         ],
-        now: stat?.prefixCaching === false
-          ? <>This vLLM has prefix caching turned off, so there is nothing to hit.</>
+        ...(stat?.prefixCaching === false
+          ? { note: <>This vLLM has prefix caching turned off, so there is nothing to hit.</> }
           : stat?.cacheHitPercent === null || stat?.cacheHitPercent === undefined
-            ? <>Idle: no requests in the last 2 minutes.</>
-            : <>Now: {stat.cacheHitPercent}% of prompt tokens came from cache.</>,
+            ? { note: <>Idle: no requests in the last 2 minutes.</> }
+            : { metrics: [{ value: `${stat.cacheHitPercent}%`, label: 'of prompt tokens came from cache', sub: 'last 2 minutes', tone: stat.cacheHitPercent >= 50 ? 'ok' : 'plain' }] as Metric[] }),
       };
     case 'speed':
       return {
@@ -154,9 +215,15 @@ function modelContent(target: HelpTarget, model: ModelState, stat: ReplicaStatus
           <><b>First token</b>: the average wait, over the last 30 seconds, from a request reaching vLLM to the first word of its answer. Time spent queued and time spent reading the prompt both count, so a queue or long new prompts push it up, and <b>cache hits</b> bring it down: vLLM skips the part of the prompt it already holds.</>,
           <><b>tok/s</b>: answer tokens this replica produces per second, all its requests together. With <b>continuous batching</b> one GPU generates for many requests at once, so the total grows with the batch while each answer keeps a steady pace of its own.</>,
         ],
-        now: stat?.firstTokenSeconds == null
-          ? <>Idle: no requests finished in the last 30 seconds.</>
-          : <>Now: first token in {formatSeconds(stat.firstTokenSeconds)} · {stat.outputTokensPerSecond.toLocaleString()} tokens/s in total{stat.perRequestTokensPerSecond != null ? <> · each answer about {Math.round(stat.perRequestTokensPerSecond)} tokens/s</> : null} · {stat.runningRequests} running</>,
+        ...(stat?.firstTokenSeconds == null
+          ? { note: <>Idle: no requests finished in the last 30 seconds.</> }
+          : { metrics: [
+            { value: formatSeconds(stat.firstTokenSeconds), label: 'to first token', sub: 'average', tone: 'plain' },
+            { value: stat.outputTokensPerSecond.toLocaleString(), label: 'tokens/s', sub: 'all answers', tone: 'ok' },
+            ...(stat.perRequestTokensPerSecond != null
+              ? [{ value: `${Math.round(stat.perRequestTokensPerSecond)}`, label: 'tokens/s', sub: 'each answer', tone: 'plain' }] : []),
+            { value: `${stat.runningRequests}`, label: 'running', tone: stat.runningRequests > 0 ? 'ok' : 'muted' },
+          ] as Metric[] }),
       };
     default:
       return {
@@ -200,6 +267,7 @@ function llmdContent(models: ModelState[], w: EppWeights | null): Content {
       </table>,
       ...internal.map(m => <ModelScoreboard key={m.name} model={m} />),
     ],
+    lead: false,
     now: <>Share: requests each replica finished in the last 20 seconds. The picker does not publish its per-request scores; these are what it looks at.</>,
   };
 }
@@ -280,7 +348,7 @@ function gatewayContent(topic: HelpTopic, stats: Stats): Content {
           <>Every request must prove who it is, usually with an <b>API key</b>: developers create their own in the OpenShift AI dashboard, scoped to their subscription and revocable at any time. Tokens and <b>OIDC</b> logins such as Keycloak work too (see the OIDC tab).</>,
           <>The gateway checks it before anything else. A request that fails is turned away here with <b>401</b> and never reaches a model or uses a GPU.</>,
         ],
-        now: <>Since this page opened: {stats.authRejected} rejected.</>,
+        metrics: counter(stats.authRejected, 'rejected (401)', true),
       };
     case 'gw-access':
       return {
@@ -289,7 +357,7 @@ function gatewayContent(topic: HelpTopic, stats: Stats): Content {
           <>The caller's group decides its <b>subscription</b>: here the free, pro and max tiers on the left. A subscription lists the models it may use and its token limits for each.</>,
           <>Asking for a model the subscription does not include is refused with <b>403</b>. Changing a tier in the OpenShift AI console moves every user in it at once.</>,
         ],
-        now: <>Since this page opened: {stats.accessDenied} denied.</>,
+        metrics: counter(stats.accessDenied, 'denied (403)', true),
       };
     case 'gw-limit':
       return {
@@ -298,7 +366,7 @@ function gatewayContent(topic: HelpTopic, stats: Stats): Content {
           <>Each tier gets a budget of <b>tokens per minute</b>, per user and per model, shown on the tier cards. Tokens, not requests: a long prompt and a long answer cost more than a short one, as they do on the GPU.</>,
           <>The gateway counts the tokens each answer actually used. Over budget, the next request gets <b>429</b> until the minute rolls over: the red dots bouncing back, and the red model names on the user rows.</>,
         ],
-        now: <>Since this page opened: {stats.rateLimitedRequests} limited.</>,
+        metrics: counter(stats.rateLimitedRequests, 'over the limit (429)', true),
       };
     case 'gw-route':
       return {
@@ -307,7 +375,7 @@ function gatewayContent(topic: HelpTopic, stats: Stats): Content {
           <>The request names a model, and the gateway sends it there. One endpoint serves every model.</>,
           <>For models on our GPUs, <b>llm-d</b> picks the replica: one that has the prompt's beginning cached and no queue. For external models, the gateway adds the provider's API key and forwards the request to OpenAI or Google.</>,
         ],
-        now: <>Since this page opened: {stats.routedRequests} routed.</>,
+        metrics: counter(stats.routedRequests, 'routed', false),
       };
     default:
       return {
@@ -316,7 +384,7 @@ function gatewayContent(topic: HelpTopic, stats: Stats): Content {
           <>Every answer's token count is recorded with who asked, which model answered and under which subscription.</>,
           <>That is what the <b>Cost & Chargeback</b> tab and OpenShift AI's own usage dashboard show: usage, and its cost, per user, model and tier.</>,
         ],
-        now: <>Since this page opened: {stats.totalTokens.toLocaleString()} tokens metered.</>,
+        metrics: counter(stats.totalTokens, 'tokens metered', false),
       };
   }
 }
@@ -332,6 +400,15 @@ const styles: Record<string, React.CSSProperties> = {
   close: { background: 'transparent', border: 'none', color: '#a3a3a3', fontSize: 18, lineHeight: 1, cursor: 'pointer', padding: 0 },
   p: { margin: '6px 0' },
   now: { marginTop: 8, paddingTop: 6, borderTop: '1px solid #1f1f1f', color: '#f2f2f2', fontWeight: 600 },
+  live: { margin: '8px 0 6px', padding: '7px 8px 8px', background: 'rgba(255, 255, 255, 0.04)', border: '1px solid #2e2e2e', borderRadius: 6 },
+  liveLabel: { fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#8a8a8a', marginBottom: 5 },
+  liveNote: { fontSize: 12.5, color: '#c7c7c7' },
+  tiles: { display: 'grid', gap: 6 },
+  tile: { background: 'rgba(0, 0, 0, 0.25)', border: '1px solid #262626', borderRadius: 5, padding: '6px 7px', minWidth: 0 },
+  tileValue: { fontSize: 20, fontWeight: 700, lineHeight: 1.1, whiteSpace: 'nowrap' },
+  tileLabel: { fontSize: 10.5, color: '#a3a3a3', marginTop: 3, lineHeight: 1.25 },
+  tileSub: { fontSize: 10, color: '#6a6e73', marginTop: 1, lineHeight: 1.2 },
+  more: { background: 'transparent', border: 'none', color: '#a3a3a3', fontSize: 12, padding: '2px 0', cursor: 'pointer' },
   table: { borderCollapse: 'collapse', width: '100%', fontSize: 11.5 },
   ruleName: { padding: '2px 8px 2px 0', color: '#f2f2f2', fontWeight: 600, whiteSpace: 'nowrap' },
   weight: { color: '#ffcc17', fontWeight: 700 },
