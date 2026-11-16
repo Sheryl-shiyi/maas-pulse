@@ -199,13 +199,13 @@ function modelContent(target: HelpTarget, model: ModelState, stat: ReplicaStatus
         title: "Cache hit rate: work vLLM didn't redo",
         body: [
           <>vLLM keeps the <b>KV cache</b> of each prompt it has read (its attention keys and values) in GPU memory. A new prompt that starts the same way, such as a shared system prompt or document, reuses it instead of recomputing: a <b>hit</b>. Faster first token, less GPU work.</>,
-          <>The bar is the share of prompt tokens served from cache in the last 2 minutes. Each replica has its own cache. A returning dot with a <b style={{ color: '#f2f2f2' }}>white ring</b> was answered mostly from cache.</>,
+          <>The bar is the share of prompt tokens served from cache in the last 2 minutes, while the replica is serving; a replica that is not serving reads idle. Each replica has its own cache. A returning dot with a <b style={{ color: '#f2f2f2' }}>white ring</b> was answered mostly from cache.</>,
           <><b>llm-d</b>, the gateway's scheduler, sends a request to the replica likely to have its start cached, and requests nobody has seen to the least recently used one. So a <b>new replica starts low</b>: it gets the uncacheable work, and warms up as it serves.</>,
         ],
         ...(stat?.prefixCaching === false
           ? { note: <>This vLLM has prefix caching turned off, so there is nothing to hit.</> }
           : stat?.cacheHitPercent === null || stat?.cacheHitPercent === undefined
-            ? { note: <>Idle: no requests in the last 2 minutes.</> }
+            ? { note: <>Idle: this replica is not serving requests right now (none finished in the last 20 seconds), so there is no hit rate to show. It may still hold cached prompts from earlier.</> }
             : { metrics: [{ value: `${stat.cacheHitPercent}%`, label: 'of prompt tokens came from cache', sub: 'last 2 minutes', tone: stat.cacheHitPercent >= 50 ? 'ok' : 'plain' }] as Metric[] }),
       };
     case 'speed':

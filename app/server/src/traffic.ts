@@ -67,6 +67,17 @@ export async function startTraffic(config: TrafficConfig) {
   );
 
   try {
+    // A shared document should land on ONE replica first: sent together, the first round's
+    // requests all miss the cache and llm-d may spread them, so every replica holds the
+    // document from the start and the load just splits. One request per model goes alone;
+    // once it has been read, everything after it finds that replica warm.
+    if (config.promptShape === 'shared-prefix') {
+      const signal = abortController.signal;
+      for (const model of config.modelsEnabled) {
+        if (signal.aborted) break;
+        await fireRequest(config.usersEnabled[0]!, model, signal);
+      }
+    }
     switch (config.pattern) {
       case 'concurrent':
         await runConcurrent(config);

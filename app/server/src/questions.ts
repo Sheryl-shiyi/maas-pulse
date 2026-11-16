@@ -65,7 +65,9 @@ export function getQuestionPool(): string[] {
  *
  * - `short`         the question on its own. Cheap, and every user asks from the same
  *                   small pool, so the prefix cache hits constantly.
- * - `shared-prefix` one long preamble, identical for every request, then the question.
+ * - `shared-prefix` one long preamble, identical for every request of a traffic run, then
+ *                   the question. A new preamble for every run (it used to be fixed, so an
+ *                   earlier run had often cached it on every replica before this one began).
  *                   Maximises prefix cache reuse, which is what makes cache-aware
  *                   routing worth having — and what makes a per-replica cache hit rate
  *                   move on screen.
@@ -136,7 +138,7 @@ function buildPreamble(seed: number, approxTokens: number): string {
   return parts.join(' ');
 }
 
-/** Fixed seed: every caller gets byte-identical text, so the prefix cache can hit. */
+/** Mixed with the run's salt: byte-identical text within a run, so the prefix cache hits. */
 const SHARED_SEED = 0x5ea5ed;
 let uniqueCounter = 0;
 /** Mixed into per-user seeds; changed by newPromptRun so every traffic run starts cold. */
@@ -157,7 +159,7 @@ function hashName(name: string): number {
 export function buildPrompt(shape: PromptShape, approxPrefixTokens: number, user = '', question = getRandomQuestion()): string {
   if (shape === 'short') return question;
 
-  const seed = shape === 'shared-prefix' ? SHARED_SEED
+  const seed = shape === 'shared-prefix' ? (SHARED_SEED ^ runSalt) >>> 0
     : shape === 'per-user-prefix' ? (hashName(user) ^ runSalt) >>> 0
     : (Date.now() ^ (uniqueCounter++ << 16)) >>> 0;
   const preamble = buildPreamble(seed, approxPrefixTokens);

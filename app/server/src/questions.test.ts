@@ -77,3 +77,15 @@ describe('per-user-prefix', () => {
     assert.ok(p.endsWith('answer: What is a KV cache?'));
   });
 });
+
+describe('shared-prefix per run', () => {
+  it('keeps one document within a run and starts a new one with the next run', () => {
+    newPromptRun();
+    const a = preambleOf(buildPrompt('shared-prefix', 600));
+    const b = preambleOf(buildPrompt('shared-prefix', 600, 'max:user8'));
+    newPromptRun();
+    const c = preambleOf(buildPrompt('shared-prefix', 600));
+    assert.equal(a, b);
+    assert.notEqual(a, c);
+  });
+});

@@ -611,9 +611,9 @@ running traffic, sets users, models, prompt shape and rate, starts again, and pu
    their per-minute Qwen3 allowance within half a minute and halve the batch.)
 3. **Autoscaling under real load**: Max on Qwen3 with unique prompts of about 1,500 tokens; a queue builds,
    the autoscaler adds a replica and says why. Keep it running until #2 takes its share.
-4. **llm-d: cache-aware routing**: Max on Qwen3, each user with their own document; llm-d keeps
-   each user on the replica that cached theirs (measured: 118 of 118 requests per user on one
-   replica, 98% of prompt tokens from cache). Needs the second replica from scene 3.
+4. **llm-d: cache-aware routing**: Max on Qwen3, every request with the same document (new for
+   each run, its first request sent alone): it lands on one replica, and llm-d sends every
+   follow-up there while the other stays idle. Needs the second replica from scene 3.
 5. **Cloud-hosted APIs and privacy**: Pro and Max on Gemini, GPT and Qwen3; same gateway and
    rules, but these prompts leave the cluster. Uses the paid keys: stop it when done.
 

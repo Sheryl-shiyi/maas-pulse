@@ -122,6 +122,18 @@ export function orderedPods(model: string, seen: string[]): string[] {
 const CACHE_RATE_WINDOW = '2m';
 
 /**
+ * A replica's prefix-cache hit rate, or null for "idle". Null when nothing was looked up,
+ * and also when the replica is not serving now (nothing finished in the last 20 s and nothing
+ * running): the 2-minute ratio would otherwise go on showing an earlier run's ~99% on a
+ * replica llm-d no longer sends anything to (seen when scene 4 was run twice, 2026-11-16).
+ */
+export function replicaHitPercent(hits: number, queries: number, servedPerSecond: number, running: number): number | null {
+  if (queries <= 0) return null;
+  if (servedPerSecond <= 0 && running <= 0) return null;
+  return Math.round((hits / queries) * 100);
+}
+
+/**
  * Whether each replica of a model has prefix caching enabled, from vLLM's own
  * `vllm:cache_config_info` gauge (label `enable_prefix_caching`, "True"/"False").
  *
@@ -261,12 +273,9 @@ async function pollModelMetrics(models: ModelInfo[]) {
       const r = runningByPod.get(pod) ?? 0;
       const q = waitingByPod.get(pod) ?? 0;
       const kv = (kvByPod.get(pod) ?? 0) * 100;
-      // Null rather than zero when nothing was looked up: an idle replica has no hit
-      // rate, and drawing that as 0% would claim its cache is cold when it may be warm.
-      const queries = queriesByPod.get(pod) ?? 0;
-      const hitPercent = queries > 0
-        ? Math.round(((hitsByPod.get(pod) ?? 0) / queries) * 100)
-        : null;
+      // Null rather than zero for an idle replica: drawing 0% would claim its cache is cold
+      // when it may be warm. Idle also means "not serving now", see replicaHitPercent.
+      const hitPercent = replicaHitPercent(hitsByPod.get(pod) ?? 0, queriesByPod.get(pod) ?? 0, servedByPod.get(pod) ?? 0, r);
       return {
         runningRequests: Math.round(r),
         queuedRequests: Math.round(q),

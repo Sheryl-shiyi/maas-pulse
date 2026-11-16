@@ -241,7 +241,7 @@ function promptHint(shape: PromptShape, tokens: number): string {
     case 'short':
       return 'one question from a pool of 50. Cheap; a repeated question is mostly served from the prefix cache.';
     case 'shared-prefix':
-      return `the same ${doc} before every question. Shows cache hits; once every replica holds it, llm-d simply shares the load.`;
+      return `the same ${doc} before every question, new for every run. The first request goes alone, so it lands on one replica, and llm-d sends the rest there.`;
     case 'per-user-prefix':
       return `each user's own ${doc}, new for every run. The first question reads it; llm-d sends that user's next ones to the replica holding it.`;
     case 'unique-prefix':

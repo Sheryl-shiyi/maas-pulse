@@ -95,16 +95,18 @@ export const SCENES: Scene[] = [
     users: tierIn('max'),
     models: isQwen,
     pattern: 'concurrent',
-    // One document per user, not one shared by all: a single shared document is soon
-    // cached on every replica, and then llm-d just balances load (both at 99%, measured
-    // 2026-11-08), which shows nothing about where requests go.
-    promptShape: 'per-user-prefix',
+    // One document shared by every request, new for each run, whose first request goes
+    // alone (traffic.ts): it lands on one replica, and llm-d then sends everything there.
+    // One warm replica beside an idle one is the picture that explains prefix-cache-aware
+    // routing. Per-user documents (the previous version) split the users over both
+    // replicas, both near 99%, which looked like plain load balancing (user, 2026-11-16).
+    promptShape: 'shared-prefix',
     promptTokens: 2000,
     rate: 1,
     watch: [
-      'Each Max user brings **their own document** (~1,500 tokens): the first question reads it all, the next ones find it in cache.',
-      'llm-d sends **each user to the replica holding their document**: in the Live Feed, each user stays on the same "served by #n".',
-      'Both replicas stay **near 99% cache hits** while sharing the work. Click llm-d for its scoreboard; **Trace a request** shows its pick.',
+      'Every Max user asks about **the same document** (~1,500 tokens, new each run). The first question goes alone and reads it on one replica.',
+      'llm-d sends **every follow-up to that replica**, where the document is cached: its cache hit rate climbs towards 99%, and **the other replica stays idle**.',
+      'Click llm-d for its scoreboard; **Trace a request** shows the cached tokens. If the warm replica queued, the queue score would send work to the other.',
     ],
   },
   {
